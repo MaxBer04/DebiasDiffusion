@@ -285,6 +285,7 @@ class TestingDiffusionPipeline(StableDiffusionPipeline):
         
         
         z_0_pred_list = []
+        latents_list = []
 
         # 7. Denoising loop
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
@@ -327,6 +328,7 @@ class TestingDiffusionPipeline(StableDiffusionPipeline):
 
                 # compute the previous noisy sample x_t -> x_t-1
                 latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
+                latents_list.append(latents.detach().clone())
 
                 if callback_on_step_end is not None:
                     callback_kwargs = {}
@@ -366,15 +368,15 @@ class TestingDiffusionPipeline(StableDiffusionPipeline):
             do_denormalize = [not has_nsfw for has_nsfw in has_nsfw_concept]
 
         image = self.image_processor.postprocess(image, output_type=output_type, do_denormalize=do_denormalize)
-        #if return_image_predictions:
-        #    for i in range(len(img_predictions)):
-        #        img_predictions[i] = self.image_processor.postprocess(img_predictions[i], output_type=output_type, do_denormalize=do_denormalize_preds)[0]
+        if return_image_predictions:
+            for i in range(len(img_predictions)):
+                img_predictions[i] = self.image_processor.postprocess(img_predictions[i], output_type=output_type, do_denormalize=do_denormalize_preds)[0]
 
         # Offload all models
         self.maybe_free_model_hooks()
 
         if not return_dict:
-            return (image, img_predictions if return_image_predictions else None)
+            return (image, img_predictions if return_image_predictions else None, latents_list)
 
         return StableDiffusionPipelineOutput(images=image, nsfw_content_detected=has_nsfw_concept)
 

@@ -82,7 +82,7 @@ def save_images(images_list: List[List[Image.Image]], output_dir: Path, args: ar
                 for i, image in enumerate(images):
                     image.save(single_images_dir / f"{prompt_slug}_{args.seed}_{i:04d}.png")
                 
-                save_image_grid_with_borders(images, prompt, args.seed, prompt_dir, num_cols=args.grid_cols)
+                save_image_grid_with_borders(images.reverse(), prompt, args.seed, prompt_dir, num_cols=args.grid_cols)
 
 def main(args: argparse.Namespace):
     set_seed(args.seed)
@@ -106,7 +106,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate images using various Stable Diffusion pipelines")
     parser.add_argument("--model_id", type=str, default="PalionTech/debias-diffusion-orig",
                         help="Hugging Face model ID or path to local model")
-    parser.add_argument("--prompts", nargs="+", default=["A photo of a police officer"],
+    parser.add_argument("--prompts", nargs="+", default=["A photo of a diplomat"],
                         help="List of prompts to generate images from")
     parser.add_argument("--output_dir", type=str, default="outputs/section_4.2/re_diffusion",
                         help="Output directory for generated images")
@@ -118,7 +118,7 @@ def parse_args() -> argparse.Namespace:
                         help="Guidance scale for classifier-free guidance")
     parser.add_argument("--grid_cols", type=int, default=10,
                         help="Number of columns in the output grid")
-    parser.add_argument("--seed", type=int, default=9848454,
+    parser.add_argument("--seed", type=int, default=9374,
                         help="Random seed for reproducibility")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu",
                         help="Device to run the model on")
