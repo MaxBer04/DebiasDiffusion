@@ -6,6 +6,7 @@ from typing import List, Dict
 
 import torch
 from diffusers import StableDiffusionPipeline
+from diffusers.loaders import LoraLoaderMixin
 from transformers import CLIPTextModel, CLIPTokenizer
 from PIL import Image
 from tqdm.auto import tqdm
@@ -27,13 +28,11 @@ def set_seed(seed: int):
 def setup_pipeline(model: str, model_id: str, device: str) -> StableDiffusionPipeline:
     if model == "SD":
         pipeline = StableDiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16)
-    elif model == "FTF":
+    elif model == "FDM":
         pipeline = StableDiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16)
-        text_encoder_lora_params = CLIPTextModel.from_pretrained(
-            BASE_DIR / "data/FDM/text_encoder_lora_EMA_rag.pth",
-            torch_dtype=torch.float16
-        )
-        pipeline.text_encoder.load_state_dict(text_encoder_lora_params.state_dict(), strict=False)
+        text_encoder_lora_params = LoraLoaderMixin._modify_text_encoder(pipeline.text_encoder, dtype=torch.float32, rank=50, patch_mlp=False)
+        text_encoder_lora_dict = torch.load(BASE_DIR / "data/FDM/text_encoder_lora_EMA_rag.pth", map_location=device)
+        _ = pipeline.text_encoder.load_state_dict(text_encoder_lora_dict, strict=False)
     elif model == "DD":
         pipeline = DebiasDiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16).to(device)
         classifiers_base_path = BASE_DIR / "data" / "DD" / "classifiers_all" / "classifiers_qqff" / "5k"
@@ -99,9 +98,9 @@ def generate_images(pipeline, prompts: List[str], args: argparse.Namespace) -> L
     """Generate images using the provided pipeline and prompts."""
     all_images = []
     for prompt in tqdm(prompts, desc="Generating images"):
-        if args.model in ["SD", "FTF", "DD", "AS"]:
+        if args.model in ["SD", "FDM", "DD", "AS"]:
             batch_prompts = [prompt] * args.num_images_per_prompt
-            images = pipeline(batch_prompts, num_inference_steps=50, guidance_scale=7.5, generator=torch.Generator(device=pipeline.device).manual_seed(args.seed)).images
+            images = pipeline(batch_prompts, num_inference_steps=args.num_inference_steps, guidance_scale=args.guidance_scale, generator=torch.Generator(device=pipeline.device).manual_seed(args.seed)).images
         elif args.model == "FD":
             num_images = args.num_images_per_prompt
             attributes = pipeline.editing_prompts.keys()
@@ -169,7 +168,7 @@ def main(args: argparse.Namespace):
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate images using various Stable Diffusion pipelines")
-    parser.add_argument("--models", nargs="+", choices=["SD", "FTF", "DD", "AS", "FD"], required=True,
+    parser.add_argument("--models", nargs="+", choices=["SD", "FDM", "DD", "AS", "FD"], required=True,
                         help="Types of models to use")
     parser.add_argument("--model_id", type=str, default="PalionTech/debias-diffusion-orig",
                         help="Hugging Face model ID or path to local model")
