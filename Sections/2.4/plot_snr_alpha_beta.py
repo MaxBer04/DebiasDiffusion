@@ -61,7 +61,7 @@ def plot_snr_alpha_beta(imgs_out_dir, num_inference_steps):
     ax.fill_between([x_min, x_max], ax.get_ylim()[0], 10**log_snr_2, color='blue', alpha=0.1)
 
     ax.set_xlabel('Timestep t')
-    ax.set_ylabel('(log-)SNR')
+    ax.set_ylabel('') #(log-)SNR
     ax.set_title('') #Signal-to-Noise Ratio over Timesteps
     ax.legend(['SNR', r'$\tau_1$', r'$\tau_2$'])
     ax.grid(True, linestyle='--', alpha=0.7)
@@ -75,6 +75,6 @@ def plot_snr_alpha_beta(imgs_out_dir, num_inference_steps):
     plt.close()
 
 if __name__ == "__main__":
-    imgs_out_dir = BASE_DIR / "outputs" / "section_4.2" / "SNR"
+    imgs_out_dir = BASE_DIR / "outputs" / "section_2.4" / "SNR"
     os.makedirs(imgs_out_dir, exist_ok=True)
     plot_snr_alpha_beta(imgs_out_dir, num_inference_steps=50)

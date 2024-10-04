@@ -78,7 +78,7 @@ def calculate_average_probs(df: pd.DataFrame, groups: List[str], attribute: str,
 
 def create_area_plots(data: Dict[str, Dict[str, Dict[str, List[float]]]], output_dir: Path, save_svg: bool, 
                       target_distributions: Dict[str, List[float]], fontsize_tick: int, fontsize_label: int, 
-                      fontsize_title: int):
+                      fontsize_title: int, dataset_type: str):
     plt.style.use('default')
     
     # Professional color palette
@@ -127,7 +127,7 @@ def create_area_plots(data: Dict[str, Dict[str, Dict[str, List[float]]]], output
                     ax.set_yticklabels([])  # Remove y-axis labels for other plots
 
                 if i == len(MODEL_PREFIXES) - 1:  # Add x-label to bottom row
-                    ax.set_xlabel('Groups', fontsize=fontsize_label, labelpad=14)
+                    ax.set_xlabel('Occupations' if dataset_type == 'occupation' else  'Groups', fontsize=fontsize_label, labelpad=14)
 
         # Add model names to the left of each row
         for i, model in enumerate(MODEL_PREFIXES):
@@ -251,7 +251,7 @@ def main():
             data[attr][prefix] = calculate_average_probs(df, groups, attr, args.dataset_type)
 
     create_area_plots(data, output_dir, args.save_svg, target_distributions,
-                      args.fontsize_tick, args.fontsize_label, args.fontsize_title)
+                      args.fontsize_tick, args.fontsize_label, args.fontsize_title, args.dataset_type)
     print(f"Plots saved in {output_dir}")
 
 if __name__ == "__main__":
