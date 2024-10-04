@@ -10,13 +10,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 plt.rcParams.update({
     "font.family": "serif",
-    "font.size": 14,
-    "axes.labelsize": 16,
-    "axes.titlesize": 18,
-    "xtick.labelsize": 12,
-    "ytick.labelsize": 12,
-    "legend.fontsize": 12,
-    "figure.titlesize": 20
+    "font.size": 18,
+    "axes.labelsize": 20,
+    "axes.titlesize": 22,
+    "xtick.labelsize": 16,
+    "ytick.labelsize": 16,
+    "legend.fontsize": 16,
+    "figure.titlesize": 24
 })
 
 def plot_snr_alpha_beta(imgs_out_dir, num_inference_steps):
@@ -25,7 +25,7 @@ def plot_snr_alpha_beta(imgs_out_dir, num_inference_steps):
     snr = alphas / (1 - alphas)
 
     # Plot für Alphas und Betas
-    fig, ax = plt.subplots(figsize=(12, 6), dpi=300)
+    fig, ax = plt.subplots(figsize=(6, 4), dpi=300)
     ax.plot(range(1, len(betas)+1), betas, label='Betas', marker='o', markersize=4)
     ax.plot(range(1, len(alphas)+1), alphas, label='Alphas', marker='x', markersize=4)
     ax.set_xlabel('Timestep t')
@@ -41,7 +41,7 @@ def plot_snr_alpha_beta(imgs_out_dir, num_inference_steps):
     plt.close()
     
     # Plot für SNR
-    fig, ax = plt.subplots(figsize=(12, 6), dpi=300)
+    fig, ax = plt.subplots(figsize=(6, 4), dpi=300)
     ax.plot(range(1, len(snr)+1), snr, label='SNR', marker='*', color='black', markersize=4)
 
     log_snr_1 = 0
@@ -61,7 +61,7 @@ def plot_snr_alpha_beta(imgs_out_dir, num_inference_steps):
     ax.fill_between([x_min, x_max], ax.get_ylim()[0], 10**log_snr_2, color='blue', alpha=0.1)
 
     ax.set_xlabel('Timestep t')
-    ax.set_ylabel('log(SNR)')
+    ax.set_ylabel('(log-)SNR')
     ax.set_title('') #Signal-to-Noise Ratio over Timesteps
     ax.legend(['SNR', r'$\tau_1$', r'$\tau_2$'])
     ax.grid(True, linestyle='--', alpha=0.7)
@@ -75,6 +75,6 @@ def plot_snr_alpha_beta(imgs_out_dir, num_inference_steps):
     plt.close()
 
 if __name__ == "__main__":
-    imgs_out_dir = BASE_DIR / "outputs" / "section_4.2"
+    imgs_out_dir = BASE_DIR / "outputs" / "section_4.2" / "SNR"
     os.makedirs(imgs_out_dir, exist_ok=True)
     plot_snr_alpha_beta(imgs_out_dir, num_inference_steps=50)
