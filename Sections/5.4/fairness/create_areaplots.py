@@ -11,7 +11,9 @@ from tqdm import tqdm
 
 # Constants
 SCRIPT_DIR = Path(__file__).resolve().parent
-MODEL_PREFIXES = ['SD', 'FTF', 'FD', 'AS', 'DD']
+BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
+
+MODEL_PREFIXES = ['SD', 'FDM', 'FD', 'AS', 'DD']
 ATTRIBUTE_LABELS = {
     'gender': ['Male', 'Female'],
     'race': ['White', 'Black', 'Asian', 'Indian'],
@@ -19,7 +21,7 @@ ATTRIBUTE_LABELS = {
 }
 MODEL_NAMES = {
     'SD': 'Stable Diff.',
-    'FTF': 'DFT',
+    'FDM': 'FDM',
     'FD': 'Fair Diff.',
     'AS': 'Attr. Swit.',
     'DD': 'Debias Diff.'
@@ -27,11 +29,11 @@ MODEL_NAMES = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate comparison area plots for debiasing models")
-    parser.add_argument("--debias_group", type=str, choices=['r', 'g', 'rg', 'rag'], default="r",
+    parser.add_argument("--debias_group", type=str, choices=['r', 'g', 'rg', 'rag'], default="rg",
                         help="Debiasing group to analyze (r: race, g: gender, rg: race and gender, rag: race, age, and gender)")
-    parser.add_argument("--data_dir", type=str, default="outputs", help="Directory containing CSV files relative to script")
+    parser.add_argument("--data_dir", type=str, default="/root/DebiasDiffusion/data/5.4.1_attribute_classification_results", help="Directory containing CSV files relative to script")
     parser.add_argument("--num_groups", type=int, default=-1, help="Number of random groups to analyze. Use -1 for all groups.")
-    parser.add_argument("--output_dir", type=str, default="areaplots_r", help="Directory to save output plots")
+    parser.add_argument("--output_dir", type=str, default=BASE_DIR / "outputs" / "section_5.4" / "areaplots", help="Directory to save output plots")
     parser.add_argument("--save_svg", action="store_true", default=True, help="Save plots as SVG in addition to PNG")
     parser.add_argument("--seed", type=int, default=1904, help="Random seed for reproducibility")
     parser.add_argument("--gender_target", type=float, nargs=2, default=[0.5, 0.5],
@@ -43,7 +45,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fontsize_tick", type=int, default=16, help="Font size for tick labels")
     parser.add_argument("--fontsize_label", type=int, default=22, help="Font size for axis labels")
     parser.add_argument("--fontsize_title", type=int, default=26, help="Font size for titles")
-    parser.add_argument("--dataset_type", type=str, choices=['occupation', 'laion'], default='laion',
+    parser.add_argument("--dataset_type", type=str, choices=['occupation', 'laion'], default='occupation',
                         help="Type of dataset: occupation (templated) or laion (non-templated)")
     return parser.parse_args()
 
@@ -136,7 +138,7 @@ def create_area_plots(data: Dict[str, Dict[str, Dict[str, List[float]]]], output
                 y_pos = 1.75
             if model == "FD":
                 y_pos = 2.6
-            elif model == "FTF":
+            elif model == "FDM":
                 y_pos = 3.48
             elif model == "SD":
                 y_pos = 4.35
@@ -212,7 +214,7 @@ def main():
         return
     all_dfs['SD'] = sd_df
 
-    for prefix in tqdm(['FD', 'FTF', 'DD', 'AS'], desc="Loading data"):
+    for prefix in tqdm(['FD', 'FDM', 'DD', 'AS'], desc="Loading data"):
         if args.dataset_type == 'occupation':
             if prefix == 'FD':
                 if args.debias_group in ['rg', 'rag']:
@@ -221,7 +223,7 @@ def main():
                     file_name = f"{prefix}_{args.debias_group}_bs64_occs500_legacy-gender.csv"
             elif prefix == 'DD':
                 file_name = f"{prefix}_{args.debias_group}_s17_bs64_occs500_legacy-gender.csv"
-            else:  # FTF and AS
+            else:  # FDM and AS
                 file_name = f"{prefix}_{args.debias_group}_bs64_occs500_legacy-gender.csv"
         else:  # LAION dataset
             file_name = f"{prefix}_{args.debias_group}.csv"

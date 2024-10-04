@@ -133,8 +133,8 @@ def download_directory_from_storage(bucket_name, directory, access_key_id, secre
 def main():
     parser = argparse.ArgumentParser(description='Dataset Compression and S3/R2 Uploader/Downloader')
     parser.add_argument('action', choices=['upload', 'download'], help='Action to perform: upload or download')
-    parser.add_argument('--dataset_dir', default='/root/DebiasDiffusion/data/datasets/AS_rg_bs64_occs500', help='Directory containing the dataset')
-    parser.add_argument('--compressed_file', default='/AS_rg_bs64_occs500', help='Name of the compressed file')
+    parser.add_argument('--dataset_dir', default="", help='Directory containing the dataset')
+    parser.add_argument('--compressed_file', default='5_attribute_analysis_results', help='Name of the compressed file')
     parser.add_argument('--bucket_name', default="masterarbeit-2", help='Name of the S3/R2 bucket')
     parser.add_argument('--no_compress', action='store_true', help='Upload or download the directory without compression')
     parser.add_argument('--fast_compress', default=True, action='store_true', help='Use a fast compression scheme for datasets with lots of single datapoints')
