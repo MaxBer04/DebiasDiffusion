@@ -50,10 +50,18 @@ class DebiasDiffusionPipeline(StableDiffusionPipeline):
         self.interpolation_method = 'linear'
         self.collect_probs = False
         #self.include_entities = include_entities
-        
+    
         # Replace the original UNet with our custom UNet
-        custom_unet = CustomUNet2DConditionModel.from_config(self.unet.config)
-        custom_unet.load_state_dict(self.unet.state_dict())
+        unet_config = self.unet.config
+        custom_unet = CustomUNet2DConditionModel.from_config(unet_config)
+        
+        # Load the state dict
+        custom_unet.load_state_dict(self.unet.state_dict(), strict=False)
+        
+        # Convert the custom UNet to the same dtype as the original UNet
+        original_dtype = next(self.unet.parameters()).dtype
+        custom_unet.convert_to_dtype(original_dtype)
+        
         self.unet = custom_unet
         
         

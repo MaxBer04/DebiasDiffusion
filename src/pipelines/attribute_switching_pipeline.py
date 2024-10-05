@@ -350,7 +350,6 @@ class AttributeSwitchingPipeline(StableDiffusionPipeline):
         self.selected_nouns = {}
         
         latents_list = []
-        h_hvects_list = []
         #print(f"Debiasing is active, tau_bias: {self.tau_bias}" if self.use_debiasing else "Debiasing not activated!")
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
@@ -376,8 +375,6 @@ class AttributeSwitchingPipeline(StableDiffusionPipeline):
                 
                 noise_pred = results[0]
                 #latents_list.append(noise_pred.chunk(2)[0].detach().clone())
-                h_vects = results[1]
-                h_hvects_list.append(h_vects)
 
                 # perform guidance
                 if self.do_classifier_free_guidance:
@@ -410,7 +407,7 @@ class AttributeSwitchingPipeline(StableDiffusionPipeline):
             image = self.numpy_to_pil(image)
 
         if not return_dict:
-            return (image, latents_list, h_hvects_list)
+            return (image, latents_list)
 
         return StableDiffusionPipelineOutput(images=image, nsfw_content_detected=has_nsfw_concept)      
     
