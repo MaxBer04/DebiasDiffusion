@@ -20,6 +20,7 @@ sys.path.append(str(BASE_DIR))
 from utils.fairness import extract_and_classify_nouns, insert_classes_before_noun, check_existing_attribute
 from utils.optimal_transport import solve_optimal_transport
 from utils.classifier import make_classifier_model
+from utils.custom_unet import CustomUNet2DConditionModel
 
 class DebiasDiffusionPipeline(StableDiffusionPipeline):
     def __init__(
@@ -48,10 +49,13 @@ class DebiasDiffusionPipeline(StableDiffusionPipeline):
         self.selected_nouns = {}
         self.interpolation_method = 'linear'
         self.collect_probs = False
-        #self.parser = spacy.load("en_core_web_trf")
-        #self.subtrees_indices = None
-        #self.doc = None
         #self.include_entities = include_entities
+        
+        # Replace the original UNet with our custom UNet
+        custom_unet = CustomUNet2DConditionModel.from_config(self.unet.config)
+        custom_unet.load_state_dict(self.unet.state_dict())
+        self.unet = custom_unet
+        
         
     def set_tau_bias(self, step: int):
       self.tau_bias = step
