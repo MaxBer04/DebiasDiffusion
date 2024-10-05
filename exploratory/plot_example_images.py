@@ -116,10 +116,10 @@ def setup_pipeline(model: str, model_id: str, device: str) -> Union[
             "race": ["white person", "black person", "asian person", "indian person"]
         }
         edit_params = {
-            "warmup_steps": {"gender": [10, 10], "age": [5, 5], "race": [5, 5, 5, 5]},
-            "guidance_scales": {"gender": [6, 6], "age": [3, 3], "race": [4, 4, 4, 4]},
-            "thresholds": {"gender": [0.95, 0.95], "age": [0.95, 0.95], "race": [0.95, 0.95, 0.95, 0.95]},
-            "weights": {"gender": [1, 1], "age": [3, 1], "race": [1, 1, 1, 1]}
+            "edit_warmup_steps": {"gender": [10, 10], "age": [5, 5], "race": [5, 5, 5, 5]},
+            "edit_guidance_scales": {"gender": [6, 6], "age": [3, 3], "race": [4, 4, 4, 4]},
+            "edit_thresholds": {"gender": [0.95, 0.95], "age": [0.95, 0.95], "race": [0.95, 0.95, 0.95, 0.95]},
+            "edit_weights": {"gender": [1, 1], "age": [3, 1], "race": [1, 1, 1, 1]}
         }
         pipeline.set_attribute_params(editing_prompts, **edit_params)
         return pipeline

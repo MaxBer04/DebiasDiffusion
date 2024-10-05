@@ -20,13 +20,15 @@ This repository contains the implementation and evaluation scripts for the Debia
   conda env create -f environment.yaml
   conda activate DebiasDiffusion
   ```
-3. Install additional packages and modules:
+3. Install spaCy model:
 ```
-apt-get update && sudo apt-get install -y g++ build-essential texlive-latex-extra dvipng libgl1-mesa-glx
-conda install -c conda-forge dlib
 python -m spacy download en_core_web_sm
 ```
-For detailed installation instructions, see [docs/installation.md](docs/installation.md).
+For detailed installation instructions, see [this more elaborate guide](docs/installation.md).
+
+### Testing the different pipelines
+
+To test the different pipelines (see Section 5.1 in the thesis), we refer to [this starting guide](exploratory/README.md) and specifically the `plot_example_images.py` script.
 
 ### Downloading Data
 
