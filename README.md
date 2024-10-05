@@ -29,7 +29,7 @@ For detailed installation instructions, see [docs/installation.md](docs/installa
 
 To download the necessary data for experiments and models:
 ```
-python tools/public_data_downloader.py full --output_dir ./data
+python tools/public_data_downloader.py all --output_dir ./data
 ```
 
 For model weights only:

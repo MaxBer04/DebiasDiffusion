@@ -16,7 +16,7 @@ Usage:
 
 
 Packages:
-- `full`: Download all data (model weights and all experiment datasets)
+- `all`: Download all data (model weights and all experiment datasets)
 - `model_data`: Download only model weights (FDM_weights and h_space_classifiers)
 - `experiment_5.1.3`: Download data for experiment 5.1.3
 - `experiment_5.4`: Download data for experiment 5.4

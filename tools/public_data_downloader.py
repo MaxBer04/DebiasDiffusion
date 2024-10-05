@@ -91,14 +91,14 @@ def download_experiment_data(experiment: str, output_dir: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description='Download DebiasDiffusion datasets')
-    parser.add_argument('package', choices=['full', 'model_data', 'experiment_5.1.3', 'experiment_5.4', 'experiment_6.1'],
+    parser.add_argument('package', choices=['all', 'model_data', 'experiment_5.1.3', 'experiment_5.4', 'experiment_6.1'],
                         help='Package to download')
     parser.add_argument('--output_dir', type=Path, default=DEFAULT_OUTPUT_DIR,
                         help='Directory to save the downloaded data')
     
     args = parser.parse_args()
     
-    if args.package == 'full':
+    if args.package == 'all':
         download_full_package(args.output_dir)
     elif args.package == 'model_data':
         download_model_data(args.output_dir)

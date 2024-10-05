@@ -59,14 +59,25 @@ def get_storage_client(storage_type: Literal['s3', 'r2'],
         raise ValueError(f"Unsupported storage type: {storage_type}")
 
 def compress_directory(source_dir: Path, output_file: Path) -> None:
-    """Compress a directory into a tar archive."""
+    """Compress a directory into a tar archive with progress bar."""
+    print(f"Compressing {source_dir}...")
+    total_size = sum(f.stat().st_size for f in source_dir.glob('**/*') if f.is_file())
     with tarfile.open(output_file, f"w:{COMPRESSION_FORMAT}") as tar:
-        tar.add(source_dir, arcname=source_dir.name)
+        with tqdm(total=total_size, unit='B', unit_scale=True, desc="Compressing") as pbar:
+            for file_path in source_dir.glob('**/*'):
+                if file_path.is_file():
+                    tar.add(file_path, arcname=file_path.relative_to(source_dir.parent))
+                    pbar.update(file_path.stat().st_size)
 
 def decompress_archive(archive_path: Path, output_dir: Path) -> None:
-    """Decompress a tar archive to the specified directory."""
+    """Decompress a tar archive to the specified directory with progress bar."""
+    print(f"Decompressing {archive_path}...")
     with tarfile.open(archive_path, f"r:{COMPRESSION_FORMAT}") as tar:
-        tar.extractall(path=output_dir)
+        members = tar.getmembers()
+        with tqdm(total=len(members), desc="Decompressing") as pbar:
+            for member in members:
+                tar.extract(member, path=output_dir)
+                pbar.update(1)
 
 def upload_file(client: boto3.client, file_path: Path, bucket: str, object_name: Optional[str] = None) -> None:
     """Upload a file to S3 or R2 storage."""
@@ -82,7 +93,6 @@ def upload_file(client: boto3.client, file_path: Path, bucket: str, object_name:
 
 def download_file(client: boto3.client, bucket: str, object_name: str, file_path: Path) -> None:
     """Download a file from S3 or R2 storage."""
-    print(f"Bucket: {bucket} | Key: {object_name}")
     file_size = client.head_object(Bucket=bucket, Key=object_name)['ContentLength']
     with tqdm(total=file_size, unit='B', unit_scale=True, desc=f"Downloading {object_name}") as pbar:
         client.download_file(
@@ -93,19 +103,34 @@ def download_file(client: boto3.client, bucket: str, object_name: str, file_path
 def upload_dataset(storage_client: boto3.client, dataset_type: str, bucket: str) -> None:
     """Compress and upload a specific dataset or all datasets."""
     if dataset_type == 'all':
+        # Process all subdirectories without recursion
         for subdir in DATA_DIR.iterdir():
             if subdir.is_dir():
-                upload_dataset(storage_client, subdir.name, bucket)
+                if subdir.name == "experiments":
+                    for exp_subdir in subdir.iterdir():
+                        if exp_subdir.is_dir():
+                            process_single_upload(storage_client, exp_subdir.name, bucket)
+                else:
+                    process_single_upload(storage_client, subdir.name, bucket)
+    else:
+        process_single_upload(storage_client, dataset_type, bucket)
+
+def process_single_upload(storage_client: boto3.client, dataset_type: str, bucket: str) -> None:
+    """Process the upload for a single dataset."""
+    if dataset_type.startswith("section_"):
+        source_dir = DATA_DIR / "experiments" / dataset_type
     else:
         source_dir = DATA_DIR / dataset_type
-        if not source_dir.exists():
-            print(f"Dataset directory {source_dir} does not exist.")
-            return
+    
+    if not source_dir.exists():
+        print(f"Dataset directory {source_dir} does not exist.")
+        return
 
-        compressed_file = DATA_DIR / f"{dataset_type}.tar.{COMPRESSION_FORMAT}"
-        compress_directory(source_dir, compressed_file)
-        upload_file(storage_client, compressed_file, bucket)
-        compressed_file.unlink()  # Remove the local compressed file after upload
+    compressed_file = DATA_DIR / f"{dataset_type}.{COMPRESSION_FORMAT}"
+    compress_directory(source_dir, compressed_file)
+    upload_file(storage_client, compressed_file, bucket)
+    compressed_file.unlink()  # Remove the local compressed file after upload
+    print(f"Uploaded {dataset_type}")
 
 def download_dataset(storage_client: boto3.client, dataset_type: str, bucket: str) -> None:
     """Download and decompress a specific dataset or all datasets."""
@@ -117,8 +142,20 @@ def download_dataset(storage_client: boto3.client, dataset_type: str, bucket: st
         object_name = f"{dataset_type}.{COMPRESSION_FORMAT}"
         local_file = DATA_DIR / object_name
         download_file(storage_client, bucket, object_name, local_file)
-        decompress_archive(local_file, DATA_DIR)
+        
+        if dataset_type.startswith("section_"):
+            output_dir = DATA_DIR / "experiments"
+            output_dir.mkdir(exist_ok=True)
+            decompress_archive(local_file, output_dir)
+            # Rename the extracted folder to remove the "section_" prefix
+            extracted_dir = output_dir / dataset_type
+            if extracted_dir.exists():
+                extracted_dir.rename(output_dir / dataset_type.split("_", 1)[1])
+        else:
+            decompress_archive(local_file, DATA_DIR)
+        
         local_file.unlink()  # Remove the local compressed file after extraction
+        print(f"Downloaded and extracted {dataset_type}")
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="S3 and R2 Storage Utility for DebiasDiffusion Project")

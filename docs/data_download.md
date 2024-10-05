@@ -14,7 +14,7 @@ The `public_data_downloader.py` script in the `tools/` directory is the primary 
 
 To download all data (recommended for full reproducibility):
 ```
-python tools/public_data_downloader.py full --output_dir ./data
+python tools/public_data_downloader.py all --output_dir ./data
 ```
 
 To download only model weights:
