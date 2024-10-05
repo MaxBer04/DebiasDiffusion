@@ -1,2 +1,21 @@
-outputs
-data
+# Ignore everything in data and results directories
+data/*
+results/*
+
+# But not the directories themselves
+!data/
+!results/
+
+# And not the README files
+!data/README.md
+!results/README.md
+
+# Also don't ignore subdirectories, but ignore their contents
+!data/*/
+!results/*/
+data/*/*
+results/*/*
+
+# Except for README files in subdirectories
+!data/*/README.md
+!results/*/README.md
