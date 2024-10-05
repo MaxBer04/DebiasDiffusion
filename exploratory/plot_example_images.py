@@ -1,152 +1,146 @@
+"""
+Generate comparison images using various text-to-image diffusion models.
+
+This script generates images from a set of prompts using different text-to-image
+diffusion models for comparison purposes. It supports Stable Diffusion (SD),
+Fine-tuned Diffusion Model (FDM), Debias Diffusion (DD), Attribute Switching (AS),
+and Fair Diffusion (FD) models.
+
+Usage:
+    python exploratory/generate_comparison_images.py --models SD FDM DD AS FD
+                                         --prompts "a photo of a doctor" "a portrait of a CEO"
+                                         --num_images_per_prompt 4
+                                         
+Outputs:
+    A grid of num_images_per_prompt example images of the given prompt using the provided models.
+    Results are (by default) saved in PROJECT_ROOT / "results/section_5.4/comparison_images".
+"""
+
 import argparse
 import random
 import sys
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Union
 
 import torch
 from diffusers import StableDiffusionPipeline
 from diffusers.loaders import LoraLoaderMixin
-from transformers import CLIPTextModel, CLIPTokenizer
 from PIL import Image
-from tqdm.auto import tqdm
+from tqdm import tqdm
 
+# Add the project root to the Python path
 SCRIPT_DIR = Path(__file__).resolve().parent
-BASE_DIR = Path(__file__).resolve().parent.parent
-sys.path.append(str(BASE_DIR))
+PROJECT_ROOT = SCRIPT_DIR.parent
+sys.path.append(str(PROJECT_ROOT))
 
-from pipelines.attribute_switching_pipeline import AttributeSwitchingPipeline
-from pipelines.debias_diffusion_pipeline import DebiasDiffusionPipeline
-from pipelines.fair_diffusion_pipeline import SemanticStableDiffusionPipeline
+from src.pipelines.attribute_switching_pipeline import AttributeSwitchingPipeline
+from src.pipelines.debias_diffusion_pipeline import DebiasDiffusionPipeline
+from src.pipelines.fair_diffusion_pipeline import SemanticStableDiffusionPipeline
+from src.utils.image_utils import create_image_grid, save_images
 
-def set_seed(seed: int):
+def set_seed(seed: int) -> None:
+    """Set random seed for reproducibility."""
     random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-def setup_pipeline(model: str, model_id: str, device: str) -> StableDiffusionPipeline:
+def setup_pipeline(model: str, model_id: str, device: str) -> Union[
+    StableDiffusionPipeline,
+    DebiasDiffusionPipeline,
+    AttributeSwitchingPipeline,
+    SemanticStableDiffusionPipeline
+]:
+    """Set up the appropriate pipeline based on the model type."""
     if model == "SD":
-        pipeline = StableDiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16)
+        return StableDiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16).to(device)
     elif model == "FDM":
-        pipeline = StableDiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16)
+        pipeline = StableDiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16).to(device)
         text_encoder_lora_params = LoraLoaderMixin._modify_text_encoder(pipeline.text_encoder, dtype=torch.float32, rank=50, patch_mlp=False)
-        text_encoder_lora_dict = torch.load(BASE_DIR / "data/FDM/text_encoder_lora_EMA_rag.pth", map_location=device)
+        text_encoder_lora_dict = torch.load(PROJECT_ROOT / "data/model_data/fdm_weights/text_encoder_lora_EMA_rag.pth", map_location=device)
         _ = pipeline.text_encoder.load_state_dict(text_encoder_lora_dict, strict=False)
+        return pipeline
     elif model == "DD":
         pipeline = DebiasDiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16).to(device)
-        classifiers_base_path = BASE_DIR / "data" / "DD" / "classifiers_all" / "classifiers_qqff" / "5k"
-        pipeline.set_attribute_params(
-            attribute="gender",
-            distribution=[0.5, 0.5],
-            bias_range=(0, .5),
-            classifier_path=classifiers_base_path / "gender_5k_e100_bs256_lr0.0001_tv0.8" / "best_model.pt",
-            num_classes=2,
-            model_type="linear",
-            default_assignments=None,
-            default_switch_step=None,
-        )
-        pipeline.set_attribute_params(
-            attribute="race",
-            distribution=[0.25, 0.25, 0.25, 0.25],
-            bias_range=(0, .75),
-            classifier_path=classifiers_base_path / "race_5k_e100_bs256_lr0.0001_tv0.8" / "best_model.pt",
-            num_classes=4,
-            model_type="linear",
-            default_assignments=None,
-            default_switch_step=None,
-        )
-        pipeline.set_attribute_params(
-            attribute="age",
-            distribution=[0.75, 0.25],
-            bias_range=(0, 1.125),
-            classifier_path=classifiers_base_path / "age_5k_e100_bs256_lr0.0001_tv0.8" / "best_model.pt",
-            num_classes=2,
-            model_type="linear",
-            default_assignments=None,
-            default_switch_step=None,
-        )
+        classifiers_base_path = PROJECT_ROOT / "data/model_data/h_space_classifiers/version_2/5k"
+        for attr, params in {
+            "gender": ([0.5, 0.5], (0, 0.5), 2),
+            "race": ([0.25, 0.25, 0.25, 0.25], (0, 0.75), 4),
+            "age": ([0.75, 0.25], (0, 1.125), 2)
+        }.items():
+            pipeline.set_attribute_params(
+                attribute=attr,
+                distribution=params[0],
+                bias_range=params[1],
+                classifier_path=classifiers_base_path / f"{attr}_5k_e100_bs256_lr0.0001_tv0.8/best_model.pt",
+                num_classes=params[2],
+                model_type="linear",
+                default_assignments=None,
+                default_switch_step=None,
+            )
         pipeline.set_tau_bias(19)
-        pipeline.set_iota_step_range([4,19])
+        pipeline.set_iota_step_range([4, 19])
         pipeline.set_debiasing_options(use_debiasing=True, use_distribution_guidance=True, interpolation_method='linear')
+        return pipeline
     elif model == "AS":
-        pipeline = AttributeSwitchingPipeline.from_pretrained(model_id, torch_dtype=torch.float16)
+        pipeline = AttributeSwitchingPipeline.from_pretrained(model_id, torch_dtype=torch.float16).to(device)
         attribute_switch_steps = {"gender": 18, "race": 19, "age": 18}
         attribute_weights = {"gender": [1,1], "race": [1,1,1,1], "age": [3,1]}
-        for attr in attribute_switch_steps.keys():
-            pipeline.set_attribute_params(attr, attribute_switch_steps[attr], attribute_weights[attr])
+        for attr, step in attribute_switch_steps.items():
+            pipeline.set_attribute_params(attr, step, attribute_weights[attr])
         pipeline.set_debiasing_options(True)
+        return pipeline
     elif model == "FD":
-        pipeline = SemanticStableDiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16)
+        pipeline = SemanticStableDiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16).to(device)
         pipeline.set_momentum(scale=0.3, beta=0.6)
         editing_prompts = {
             "gender": ["male person", "female person"],
             "age": ["young person", "old person"],
             "race": ["white person", "black person", "asian person", "indian person"]
         }
-        edit_warmup_steps = {"gender": [10, 10], "age": [5, 5], "race": [5, 5, 5, 5]}
-        edit_guidance_scales = {"gender": [6, 6], "age": [3, 3], "race": [4, 4, 4, 4]}
-        edit_thresholds = {"gender": [0.95, 0.95], "age": [0.95, 0.95], "race": [0.95, 0.95, 0.95, 0.95]}
-        edit_weights = {"gender": [1, 1], "age": [3, 1], "race": [1, 1, 1, 1]}
-        pipeline.set_attribute_params(editing_prompts, edit_warmup_steps, edit_guidance_scales, edit_thresholds, edit_weights)
+        edit_params = {
+            "warmup_steps": {"gender": [10, 10], "age": [5, 5], "race": [5, 5, 5, 5]},
+            "guidance_scales": {"gender": [6, 6], "age": [3, 3], "race": [4, 4, 4, 4]},
+            "thresholds": {"gender": [0.95, 0.95], "age": [0.95, 0.95], "race": [0.95, 0.95, 0.95, 0.95]},
+            "weights": {"gender": [1, 1], "age": [3, 1], "race": [1, 1, 1, 1]}
+        }
+        pipeline.set_attribute_params(editing_prompts, **edit_params)
+        return pipeline
     else:
         raise ValueError(f"Unknown model type: {model}")
-    
-    return pipeline.to(device)
 
-def generate_images(pipeline, prompts: List[str], args: argparse.Namespace) -> List[Image.Image]:
+def generate_images(pipeline: Union[StableDiffusionPipeline, DebiasDiffusionPipeline, AttributeSwitchingPipeline, SemanticStableDiffusionPipeline],
+                    prompts: List[str],
+                    num_images_per_prompt: int,
+                    num_inference_steps: int,
+                    guidance_scale: float,
+                    seed: int) -> List[Image.Image]:
     """Generate images using the provided pipeline and prompts."""
     all_images = []
     for prompt in tqdm(prompts, desc="Generating images"):
-        if args.model in ["SD", "FDM", "DD", "AS"]:
-            batch_prompts = [prompt] * args.num_images_per_prompt
-            images = pipeline(batch_prompts, num_inference_steps=args.num_inference_steps, guidance_scale=args.guidance_scale, generator=torch.Generator(device=pipeline.device).manual_seed(args.seed)).images
-        elif args.model == "FD":
-            num_images = args.num_images_per_prompt
+        if isinstance(pipeline, SemanticStableDiffusionPipeline):
             attributes = pipeline.editing_prompts.keys()
             choices = [0 for _ in attributes]
             reverse_editing_direction = [i == choice for attr in attributes for i, choice in 
                     zip(range(2 if attr != 'race' else 4), [choices.pop(0)] * (2 if attr != 'race' else 4))]
             images = pipeline(
-                [prompt] * num_images,
-                num_inference_steps=args.num_inference_steps,
-                guidance_scale=args.guidance_scale,
-                generator=torch.Generator(device=args.device).manual_seed(args.seed),
+                [prompt] * num_images_per_prompt,
+                num_inference_steps=num_inference_steps,
+                guidance_scale=guidance_scale,
+                generator=torch.Generator(device=pipeline.device).manual_seed(seed),
                 reverse_editing_direction=reverse_editing_direction
             ).images
         else:
-            raise ValueError(f"Unknown model type: {args.model}")
-        
+            images = pipeline(
+                [prompt] * num_images_per_prompt,
+                num_inference_steps=num_inference_steps,
+                guidance_scale=guidance_scale,
+                generator=torch.Generator(device=pipeline.device).manual_seed(seed)
+            ).images
         all_images.extend(images)
     return all_images
 
-def create_image_grid(images: List[Image.Image], rows: int, cols: int) -> Image.Image:
-    w, h = images[0].size
-    grid = Image.new('RGB', size=(cols*w, rows*h))
-    for i, image in enumerate(images):
-        grid.paste(image, box=(i%cols*w, i//cols*h))
-    return grid
-
-def save_images(images: List[Image.Image], output_dir: Path, model: str, args: argparse.Namespace):
-    model_output_dir = output_dir / model
-    model_output_dir.mkdir(parents=True, exist_ok=True)
-    
-    for prompt in args.prompts:
-        prompt_slug = "_".join(prompt.split()[:10])  # Use first 10 words of prompt for filename
-        prompt_dir = model_output_dir / prompt_slug
-        prompt_dir.mkdir(parents=True, exist_ok=True)
-        
-        prompt_images = images[:args.num_images_per_prompt]
-        images = images[args.num_images_per_prompt:]  # Remove processed images
-        
-        for i, image in enumerate(prompt_images):
-            image.save(prompt_dir / f"{prompt_slug}_{args.seed}_{i:04d}.png")
-        
-        rows = (len(prompt_images) + args.grid_cols - 1) // args.grid_cols
-        grid = create_image_grid(prompt_images, rows, args.grid_cols)
-        grid.save(model_output_dir / f"{prompt_slug}_{args.seed}_grid.png")
-
-def main(args: argparse.Namespace):
+def main(args: argparse.Namespace) -> None:
     set_seed(args.seed)
     
     for model in args.models:
@@ -154,29 +148,31 @@ def main(args: argparse.Namespace):
         pipeline = setup_pipeline(model, args.model_id, args.device)
         
         print(f"Generating images for {model}...")
-        args.model = model  # Set the current model type
-        images = generate_images(pipeline, args.prompts, args)
+        images = generate_images(pipeline, args.prompts, args.num_images_per_prompt,
+                                 args.num_inference_steps, args.guidance_scale, args.seed)
         
         print(f"Saving images for {model}...")
-        save_images(images, Path(args.output_dir), model, args)
+        output_dir = Path(args.output_dir) / model
+        save_images(images, output_dir, args.prompts, args.num_images_per_prompt,
+                    args.grid_cols, args.seed)
         
-        print(f"Images for {model} saved to {args.output_dir}/{model}")
+        print(f"Images for {model} saved to {output_dir}")
         
         # Clear CUDA cache to free up memory
         if args.device == "cuda":
             torch.cuda.empty_cache()
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate images using various Stable Diffusion pipelines")
+    parser = argparse.ArgumentParser(description="Generate comparison images using various text-to-image diffusion models")
     parser.add_argument("--models", nargs="+", choices=["SD", "FDM", "DD", "AS", "FD"], required=True,
                         help="Types of models to use")
     parser.add_argument("--model_id", type=str, default="PalionTech/debias-diffusion-orig",
                         help="Hugging Face model ID or path to local model")
     parser.add_argument("--prompts", nargs="+", default=["a photo of the face of a senator"],
                         help="List of prompts to generate images from")
-    parser.add_argument("--output_dir", type=str, default="outputs",
+    parser.add_argument("--output_dir", type=str, default=PROJECT_ROOT / "results/section_5.4/comparison_images",
                         help="Output directory for generated images")
-    parser.add_argument("--num_images_per_prompt", type=int, default=64,
+    parser.add_argument("--num_images_per_prompt", type=int, default=4,
                         help="Number of images to generate per prompt")
     parser.add_argument("--num_inference_steps", type=int, default=50,
                         help="Number of denoising steps")

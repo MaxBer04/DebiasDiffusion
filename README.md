@@ -82,13 +82,6 @@ To download the pre-processed data used in the experiments:
 python scripts/s3_utils.py download --dataset_type all
 ```
 
-### Generating New Data
-
-To generate new data for the experiments:
-```
-python scripts/s3_utils.py generate --dataset_type all
-```
-
 ### Running Experiments
 
 Detailed instructions for running specific experiments can be found in the README files within each section folder under `src/sections/`.
