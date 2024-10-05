@@ -19,3 +19,6 @@ results/*/*
 # Except for README files in subdirectories
 !data/*/README.md
 !results/*/README.md
+
+# Ignore all tar files
+*.tar

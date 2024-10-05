@@ -1,6 +1,6 @@
-# Section 5.4: Comprehensive Evaluation
+# Exploratory
 
-This section contains scripts for the comprehensive evaluation of the DebiasDiffusion method and comparison with other approaches.
+This section contains scripts to accompany the comprehensive evaluation provided in the thesis.
 
 ## Scripts
 
