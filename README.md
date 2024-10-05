@@ -21,8 +21,15 @@ This repository contains the implementation and evaluation scripts for the Debia
   ```
 2. Create and activate the conda environment:
   ```
-  pip install -r requirements.txt
+  conda env create -f environment.yaml
+  conda activate DebiasDiffusion
   ```
+3. Install additional packages and modules:
+```
+apt-get update && sudo apt-get install -y g++ build-essential texlive-latex-extra dvipng libgl1-mesa-glx
+conda install -c conda-forge dlib
+python -m spacy download en_core_web_sm
+```
 For detailed installation instructions, see [docs/installation.md](docs/installation.md).
 
 ### Downloading Data

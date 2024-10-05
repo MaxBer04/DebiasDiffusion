@@ -4,7 +4,7 @@ This guide provides step-by-step instructions for setting up the DebiasDiffusion
 
 ## Prerequisites
 
-- A machine with a CUDA-compatible GPU
+- A machine with a CUDA-compatible GPU, following values are recommendations, smaller setup work as well:
   - Minimum 24GB VRAM for inference
   - Recommended 48GB VRAM for training scripts
 - Ubuntu 20.04 or later (for Linux users)
@@ -30,21 +30,23 @@ This guide provides step-by-step instructions for setting up the DebiasDiffusion
 
 Close and reopen your terminal after this step.
 
-3. Create and activate the conda environment:
+3. (Optional on some systems) Install additional components as well as CUDA:
+```
+apt-get update && apt-get install -y g++ build-essential texlive-latex-extra dvipng libgl1-mesa-glx
+```
+
+4. Create and activate the conda environment:
   ```
   conda env create -f environment.yaml
   conda activate DebiasDiffusion
   ```
 
-4. Install additional dependencies:
+5. Install spaCy model:
 ```
-sudo apt-get update && sudo apt-get install -y g++ build-essential texlive-latex-extra dvipng libgl1-mesa-glx
-conda install -c conda-forge dlib
-pip install -r requirements.txt
 python -m spacy download en_core_web_sm
 ```
 
-5. Install PyTorch with CUDA support:
+6. (Optional) Install more modern version of PyTorch (not supported on all systems but may be faster or even necessary on newer systems):
   ```
   conda install pytorch torchvision torchaudio pytorch-cuda=12.4 -c pytorch -c nvidia
   ```
