@@ -26,12 +26,18 @@ This script downloads data from a public Cloudflare R2 bucket, which uses the S3
 
 ### s3_utils.py
 
-This script is for internal use by project maintainers. It provides functionality to upload and download data to/from Amazon S3 and Cloudflare R2 storage.
+This script is for internal use by project maintainers. It provides functionality to upload and download data to/from Amazon S3 and Cloudflare R2 storage. Paths and directories are assumed relative to the projets base directory.
 
 Usage:
 
   ```
-  python s3_utils.py <action> --dataset_type <type> --storage_type <s3/r2>
+  python tools/s3_util.py <action> --dataset_type <type> --storage_type <s3/r2> --bucket <bucket name> --endpoint_url <endpoint url>
+  ```
+
+Examples to download all files:
+
+  ```
+  python tools/s3_util.py download --dataset_type all --storage_type r2 --bucket masterthesis --endpoint_url <endpoint url> 
   ```
 
 Actions:

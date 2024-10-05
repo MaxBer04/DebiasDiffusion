@@ -22,3 +22,9 @@ results/*/*
 
 # Ignore all tar files
 *.tar
+
+# Excluding all __pycache__-folders
+**/__pycache__/
+
+# Excluding all .pyc-files
+*.pyc

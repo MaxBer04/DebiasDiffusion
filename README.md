@@ -14,11 +14,7 @@ This repository contains the implementation and evaluation scripts for the Debia
 
 ### Installation
 
-1. Clone the repository:
-  ```
-  git clone https://github.com/yourusername/DebiasDiffusion.git
-  cd DebiasDiffusion
-  ```
+1. Clone the repository.
 2. Create and activate the conda environment:
   ```
   conda env create -f environment.yaml

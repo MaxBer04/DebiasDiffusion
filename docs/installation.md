@@ -32,10 +32,10 @@ Close and reopen your terminal after this step.
 
 3. (Optional on some systems) Install additional components as well as CUDA:
 ```
-apt-get update && apt-get install -y g++ build-essential texlive-latex-extra dvipng libgl1-mesa-glx
+apt-get update && apt-get install -y g++ build-essential texlive-latex-extra dvipng libgl1-mesa-glx cmake
 ```
 
-4. Create and activate the conda environment:
+4. Create and activate the conda environment (this may take a couple minutes to install the pip dependencies):
   ```
   conda env create -f environment.yaml
   conda activate DebiasDiffusion

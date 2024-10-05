@@ -93,6 +93,7 @@ def upload_file(client: boto3.client, file_path: Path, bucket: str, object_name:
 
 def download_file(client: boto3.client, bucket: str, object_name: str, file_path: Path) -> None:
     """Download a file from S3 or R2 storage."""
+    print(f"HEREEEEE: {object_name}")
     file_size = client.head_object(Bucket=bucket, Key=object_name)['ContentLength']
     with tqdm(total=file_size, unit='B', unit_scale=True, desc=f"Downloading {object_name}") as pbar:
         client.download_file(
@@ -137,7 +138,7 @@ def download_dataset(storage_client: boto3.client, dataset_type: str, bucket: st
     if dataset_type == 'all':
         for obj in storage_client.list_objects(Bucket=bucket)['Contents']:
             if obj['Key'].endswith(f".{COMPRESSION_FORMAT}"):
-                download_dataset(storage_client, obj['Key'].split('.')[0], bucket)
+                download_dataset(storage_client, obj['Key'].split(f'.{COMPRESSION_FORMAT}')[0], bucket)
     else:
         object_name = f"{dataset_type}.{COMPRESSION_FORMAT}"
         local_file = DATA_DIR / object_name
@@ -147,10 +148,7 @@ def download_dataset(storage_client: boto3.client, dataset_type: str, bucket: st
             output_dir = DATA_DIR / "experiments"
             output_dir.mkdir(exist_ok=True)
             decompress_archive(local_file, output_dir)
-            # Rename the extracted folder to remove the "section_" prefix
             extracted_dir = output_dir / dataset_type
-            if extracted_dir.exists():
-                extracted_dir.rename(output_dir / dataset_type.split("_", 1)[1])
         else:
             decompress_archive(local_file, DATA_DIR)
         
@@ -171,6 +169,8 @@ def main() -> None:
 
     if not access_key_id or not secret_access_key:
         raise ValueError("AWS credentials not found in environment variables.")
+    
+    os.makedirs(DATA_DIR, exist_ok=True)
 
     storage_client = get_storage_client(args.storage_type, access_key_id, secret_access_key, args.endpoint_url)
 

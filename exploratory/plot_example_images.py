@@ -74,7 +74,7 @@ def setup_pipeline(model: str, model_id: str, device: str) -> Union[
     elif model == "FDM":
         pipeline = StableDiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16).to(device)
         text_encoder_lora_params = LoraLoaderMixin._modify_text_encoder(pipeline.text_encoder, dtype=torch.float32, rank=50, patch_mlp=False)
-        text_encoder_lora_dict = torch.load(PROJECT_ROOT / "data/model_data/fdm_weights/text_encoder_lora_EMA_rag.pth", map_location=device)
+        text_encoder_lora_dict = torch.load(PROJECT_ROOT / "data/model_data/FDM_weights/text_encoder_lora_EMA_rag.pth", map_location=device)
         _ = pipeline.text_encoder.load_state_dict(text_encoder_lora_dict, strict=False)
         return pipeline
     elif model == "DD":
@@ -187,7 +187,7 @@ def parse_args() -> argparse.Namespace:
                         help="Hugging Face model ID or path to local model")
     parser.add_argument("--prompts", nargs="+", default=["a photo of the face of a senator"],
                         help="List of prompts to generate images from")
-    parser.add_argument("--output_dir", type=str, default=PROJECT_ROOT / "results/section_5.4/comparison_images",
+    parser.add_argument("--output_dir", type=str, default=PROJECT_ROOT / "results/example_images",
                         help="Output directory for generated images")
     parser.add_argument("--num_images_per_prompt", type=int, default=4,
                         help="Number of images to generate per prompt")
@@ -195,7 +195,7 @@ def parse_args() -> argparse.Namespace:
                         help="Number of denoising steps")
     parser.add_argument("--guidance_scale", type=float, default=7.5,
                         help="Guidance scale for classifier-free guidance")
-    parser.add_argument("--grid_cols", type=int, default=8,
+    parser.add_argument("--grid_cols", type=int, default=6,
                         help="Number of columns in the output grid")
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed for reproducibility")
