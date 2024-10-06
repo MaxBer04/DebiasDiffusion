@@ -12,11 +12,11 @@ Usage:
 
 Outputs:
     1. Individual Images:
-       - Location: PROJECT_ROOT/results/section_5.4/comparison_images/<model_name>/<prompt_slug>/
+       - Location: <BASE_DIR>/results/section_5.4/comparison_images/<model_name>/<prompt_slug>/
        - Format: PNG files named "<prompt_slug>_<seed>_<image_number>.png"
 
     2. Image Grids:
-       - Location: PROJECT_ROOT/results/section_5.4/comparison_images/<model_name>/
+       - Location: <BASE_DIR>/results/section_5.4/comparison_images/<model_name>/
        - Format: PNG files named "<prompt_slug>_<seed>_grid.png"
        - Content: Grid of num_images_per_prompt images for each prompt and model
 
@@ -47,8 +47,8 @@ from tqdm import tqdm
 
 # Add the project root to the Python path
 SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = SCRIPT_DIR.parent
-sys.path.append(str(PROJECT_ROOT))
+BASE_DIR = SCRIPT_DIR.parent
+sys.path.append(str(BASE_DIR))
 
 from src.pipelines.attribute_switching_pipeline import AttributeSwitchingPipeline
 from src.pipelines.debias_diffusion_pipeline import DebiasDiffusionPipeline
@@ -74,12 +74,12 @@ def setup_pipeline(model: str, model_id: str, device: str) -> Union[
     elif model == "FDM":
         pipeline = StableDiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16).to(device)
         text_encoder_lora_params = LoraLoaderMixin._modify_text_encoder(pipeline.text_encoder, dtype=torch.float32, rank=50, patch_mlp=False)
-        text_encoder_lora_dict = torch.load(PROJECT_ROOT / "data/model_data/FDM_weights/text_encoder_lora_EMA_rag.pth", map_location=device)
+        text_encoder_lora_dict = torch.load(BASE_DIR / "data/model_data/FDM_weights/text_encoder_lora_EMA_rag.pth", map_location=device)
         _ = pipeline.text_encoder.load_state_dict(text_encoder_lora_dict, strict=False)
         return pipeline
     elif model == "DD":
         pipeline = DebiasDiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16).to(device)
-        classifiers_base_path = PROJECT_ROOT / "data/model_data/h_space_classifiers/version_2/5k"
+        classifiers_base_path = BASE_DIR / "data/model_data/h_space_classifiers/version_2/5k"
         for attr, params in {
             "gender": ([0.5, 0.5], (0, 0.5), 2),
             "race": ([0.25, 0.25, 0.25, 0.25], (0, 0.75), 4),
@@ -187,7 +187,7 @@ def parse_args() -> argparse.Namespace:
                         help="Hugging Face model ID or path to local model")
     parser.add_argument("--prompts", nargs="+", default=["a photo of the face of a senator"],
                         help="List of prompts to generate images from")
-    parser.add_argument("--output_dir", type=str, default=PROJECT_ROOT / "results/example_images",
+    parser.add_argument("--output_dir", type=str, default=BASE_DIR / "results/example_images",
                         help="Output directory for generated images")
     parser.add_argument("--num_images_per_prompt", type=int, default=4,
                         help="Number of images to generate per prompt")

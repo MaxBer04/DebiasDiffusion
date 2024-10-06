@@ -30,6 +30,7 @@ python tools/public_data_downloader.py experiment_5.4.1 --output_dir ./data
 ### Available Packages
 
 - `full`: All data, including model weights and all experiment datasets
+- `prompts_only`: Only the prompts the re-generate the datasets (or generate new ones)
 - `model_data`: Only model weights (FDM_weights and h_space_classifiers)
 - `experiment_5.1.3`: Data for experiment 5.1.3
 - `experiment_5.4`: Data for experiment 5.4
