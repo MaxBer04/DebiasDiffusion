@@ -49,6 +49,7 @@ class DebiasDiffusionPipeline(StableDiffusionPipeline):
         self.selected_nouns = {}
         self.interpolation_method = 'linear'
         self.collect_probs = False
+        self.collect_probs = False
         #self.include_entities = include_entities
     
         # Replace the original UNet with our custom UNet
@@ -455,9 +456,10 @@ class DebiasDiffusionPipeline(StableDiffusionPipeline):
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
 
         # 7. Denoising loop
-        all_probs = {attr: [] for attr in self.attribute_classifiers.keys()}
-        self.selected_nouns = {}
+        if self.collect_probs:
+            all_probs = {attr: [] for attr in self.attribute_classifiers.keys()}
         
+        self.selected_nouns = {}
         latents_list = []
         
         #print(f"Debiasing is active, tau_bias: {self.tau_bias}" if self.use_debiasing else "Debiasing not activated!")
