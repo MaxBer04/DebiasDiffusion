@@ -1,42 +1,68 @@
-import spacy
+"""
+Utility functions for fairness-related operations in the DebiasDiffusion project.
+
+This module provides functions for analyzing and manipulating text prompts
+to support fairness in text-to-image diffusion models. It includes tools for
+noun extraction, attribute classification, and prompt modification.
+
+Usage:
+    from src.utils.fairness import extract_and_classify_nouns, debias_prompts_defaults
+
+    nouns = extract_and_classify_nouns("A photo of a doctor")
+    debiased_prompts = debias_prompts_defaults(["A photo of a doctor"], seed=42)
+"""
+
 import random
+from typing import List, Tuple, Dict, Optional
+
 import numpy as np
+import spacy
 import nltk
 from nltk.corpus import wordnet as wn
 from diffusers import StableDiffusionPipeline
 
-# Initialisierung der notwendigen Bibliotheken und Modelle
+# Initialize necessary libraries and models
 nlp = spacy.load("en_core_web_sm")
 nltk.download('wordnet', quiet=True)
 nltk.download('omw-1.4', quiet=True)
 
-def get_doc_from_text(text):
+def get_doc_from_text(text: str) -> spacy.tokens.Doc:
+    """
+    Create a spaCy Doc object from the input text.
+
+    Args:
+        text (str): The input text to process.
+
+    Returns:
+        spacy.tokens.Doc: The processed spaCy Doc object.
+    """
     return nlp(text)
 
 def calculate_snr(pipeline: StableDiffusionPipeline, timestep: int) -> float:
     """
-    Berechnet die Signal-to-Noise Ratio (SNR) für einen gegebenen Zeitschritt in der Diffusionspipeline.
-    
+    Calculate the Signal-to-Noise Ratio (SNR) for a given timestep in the diffusion pipeline.
+
     Args:
-    pipeline (StableDiffusionPipeline): Die verwendete Diffusionspipeline.
-    timestep (int): Der Zeitschritt, für den die SNR berechnet werden soll.
-    
+        pipeline (StableDiffusionPipeline): The diffusion pipeline.
+        timestep (int): The timestep for which to calculate the SNR.
+
     Returns:
-    float: Die berechnete SNR für den angegebenen Zeitschritt.
+        float: The calculated SNR for the specified timestep.
     """
     scheduler = pipeline.scheduler
-    
     alphas = scheduler.alphas_cumprod[timestep]
-    betas = scheduler.betas[timestep]
-    
     snr = alphas / (1 - alphas)
     return snr
 
-
-
-def is_human_describing_noun(word):
+def is_human_describing_noun(word: str) -> bool:
     """
-    Überprüft, ob ein Nomen Menschen beschreibt, basierend auf dessen Hypernyms in WordNet.
+    Check if a noun describes humans based on its hypernyms in WordNet.
+
+    Args:
+        word (str): The word to check.
+
+    Returns:
+        bool: True if the word describes humans, False otherwise.
     """
     synsets = wn.synsets(word, pos=wn.NOUN)
     for synset in synsets:
@@ -45,80 +71,92 @@ def is_human_describing_noun(word):
                 return True
     return False
 
-def extract_nouns(text: str) -> list:
+def extract_nouns(text: str) -> List[Tuple[str, int, spacy.tokens.Token, bool]]:
     """
-    Extracts nouns from the given text and provides their textual representation, 
-    index position, and token object.
-    
+    Extract nouns from the given text and provide their textual representation,
+    index position, token object, and whether they describe humans.
+
     Args:
-    text (str): The text from which to extract nouns.
-    
+        text (str): The text from which to extract nouns.
+
     Returns:
-    list: A list of tuples, each containing the text of the noun, its start index, 
-          and the corresponding token object.
+        List[Tuple[str, int, spacy.tokens.Token, bool]]: A list of tuples, each containing
+        the text of the noun, its start index, the corresponding token object, and
+        a boolean indicating if it describes humans.
     """
     doc = nlp(text)
-    nouns = [(token.text, token.idx, token, is_human_describing_noun(token.text)) for token in doc if token.pos_ == "NOUN"]
+    nouns = [(token.text, token.idx, token, is_human_describing_noun(token.text)) 
+             for token in doc if token.pos_ == "NOUN"]
     return nouns
 
-def replace_one_noun_with_person(text: str) -> list:
+def replace_one_noun_with_person(text: str) -> List[str]:
     """
-    Generates a list of versions of the original text, each with a different single noun replaced by 'person'.
-    
+    Generate a list of versions of the original text, each with a different single noun replaced by 'person'.
+
     Args:
-    text (str): The original text.
-    
+        text (str): The original text.
+
     Returns:
-    list: A list of strings, each with one noun replaced by 'person'.
+        List[str]: A list of strings, each with one noun replaced by 'person'.
     """
     nouns = extract_nouns(text)
     modified_texts = []
     
-    for noun_text, noun_idx, token in nouns:
-        # Start of the noun in the text
+    for noun_text, noun_idx, _, _ in nouns:
         start = noun_idx
-        # End of the noun in the text
         end = noun_idx + len(noun_text)
-        # Replace the noun with 'person'
         modified_text = text[:start] + "person" + text[end:]
         modified_texts.append(modified_text)
     
     return modified_texts
 
-def extract_and_classify_nouns(text):
+def extract_and_classify_nouns(text: str) -> List[Tuple[str, int, spacy.tokens.Token, bool]]:
     """
-    Extrahiert Nomen aus einem gegebenen Text und klassifiziert sie, ob sie Menschen beschreiben.
+    Extract nouns from a given text and classify them as human-describing or not.
+
+    Args:
+        text (str): The input text to analyze.
+
+    Returns:
+        List[Tuple[str, int, spacy.tokens.Token, bool]]: A list of tuples containing
+        the noun, its index, the spaCy token, and a boolean indicating if it's human-describing.
     """
     nouns = extract_nouns(text)
     human_nouns = []
-    for noun, idx, token, is_human_describing_noun in nouns:
-        if is_human_describing_noun:
-            human_nouns.append((noun, idx, token, True))
-            #print(f"'{noun}' - POSITIVE")
-        else:
-            human_nouns.append((noun, idx, token, False))
-            #print(f"'{noun}' - NEGATIVE")
+    for noun, idx, token, is_human_describing in nouns:
+        human_nouns.append((noun, idx, token, is_human_describing))
     return human_nouns
 
-def check_existing_attribute(prompt, noun, attribute_classes):
+def check_existing_attribute(prompt: str, noun: str, attribute_classes: List[str]) -> bool:
+    """
+    Check if any of the attribute classes already exist as modifiers for the given noun in the prompt.
+
+    Args:
+        prompt (str): The input prompt.
+        noun (str): The noun to check for modifiers.
+        attribute_classes (List[str]): List of attribute classes to check.
+
+    Returns:
+        bool: True if any attribute class exists as a modifier, False otherwise.
+    """
     doc = get_doc_from_text(prompt)
     noun_token = next(token for token in doc if token.text == noun)
     modifiers = [child.text.lower() for child in noun_token.children if child.dep_ in ['amod', 'compound']]
     return any(attr.lower() in modifiers for attr in attribute_classes)
 
-def insert_classes_before_noun(prompt, noun, noun_idx, noun_token, attributes):
+def insert_classes_before_noun(prompt: str, noun: str, noun_idx: int, noun_token: spacy.tokens.Token, attributes: List[str]) -> str:
     """
-    Fügt spezifizierte Attribute vor einem Nomen in einem Satz ein.
-    
+    Insert specified attributes before a noun in a sentence.
+
     Args:
-    - prompt: Der ursprüngliche Satz.
-    - noun: Das Nomen, vor dem Attribute eingefügt werden sollen.
-    - noun_idx: Der Index des Nomens im Satz.
-    - noun_token: Das spacy Token des Nomens.
-    - attributes: Liste der Attribute, die eingefügt werden sollen.
-    
+        prompt (str): The original sentence.
+        noun (str): The noun before which attributes will be inserted.
+        noun_idx (int): The index of the noun in the sentence.
+        noun_token (spacy.tokens.Token): The spacy Token of the noun.
+        attributes (List[str]): List of attributes to be inserted.
+
     Returns:
-    - Der modifizierte Satz mit eingefügten Attributen.
+        str: The modified sentence with attributes inserted.
     """
     doc = get_doc_from_text(prompt)
     determiners = [token.text for token in doc if token.head == noun_token and token.dep_ == 'det']
@@ -126,20 +164,43 @@ def insert_classes_before_noun(prompt, noun, noun_idx, noun_token, attributes):
     attribute_str = ' '.join(attributes) + ' ' + (' '.join(determiners) + ' ' if determiners else '')
     return prompt[:insert_position] + attribute_str + prompt[insert_position:]
 
-
-def debias_prompts(prompts, race_classes, race_chosen_idx, race_target_dist, race_dropout, gender_classes, gender_chosen_idx, gender_target_dist, gender_dropout, age_classes, age_chosen_idx, age_target_dist, age_dropout, seed, prechosen_noun=None):
+def debias_prompts(prompts: List[str], 
+                   race_classes: List[str], 
+                   race_chosen_idx: Optional[int], 
+                   race_target_dist: List[float], 
+                   race_dropout: float, 
+                   gender_classes: List[str], 
+                   gender_chosen_idx: Optional[int], 
+                   gender_target_dist: List[float], 
+                   gender_dropout: float, 
+                   age_classes: List[str], 
+                   age_chosen_idx: Optional[int], 
+                   age_target_dist: List[float], 
+                   age_dropout: float, 
+                   seed: int, 
+                   prechosen_noun: Optional[Tuple[str, int, spacy.tokens.Token, bool]] = None) -> List[str]:
     """
-    Debiases the given prompts by inserting specified attributes for race, gender, and age before a randomly chosen noun from each prompt.
-    
+    Debias the given prompts by inserting specified attributes for race, gender, and age.
+
     Args:
-    - prompts: List of input prompt strings.
-    - race_classes, gender_classes, age_classes: Lists of possible classes for each attribute.
-    - race_target_dist, gender_target_dist, age_target_dist: Lists of probabilities corresponding to each class.
-    - race_dropout, gender_dropout, age_dropout: Probability of not choosing an attribute.
-    - seed: Seed for deterministic behavior.
-    
+        prompts (List[str]): List of input prompt strings.
+        race_classes (List[str]): List of possible race classes.
+        race_chosen_idx (Optional[int]): Index of chosen race class, if any.
+        race_target_dist (List[float]): Target distribution for race classes.
+        race_dropout (float): Probability of not choosing a race attribute.
+        gender_classes (List[str]): List of possible gender classes.
+        gender_chosen_idx (Optional[int]): Index of chosen gender class, if any.
+        gender_target_dist (List[float]): Target distribution for gender classes.
+        gender_dropout (float): Probability of not choosing a gender attribute.
+        age_classes (List[str]): List of possible age classes.
+        age_chosen_idx (Optional[int]): Index of chosen age class, if any.
+        age_target_dist (List[float]): Target distribution for age classes.
+        age_dropout (float): Probability of not choosing an age attribute.
+        seed (int): Random seed for reproducibility.
+        prechosen_noun (Optional[Tuple[str, int, spacy.tokens.Token, bool]]): Pre-chosen noun to debias, if any.
+
     Returns:
-    - List of debiased prompts with attributes inserted.
+        List[str]: List of debiased prompts.
     """
     random.seed(seed)
     np.random.seed(seed)
@@ -147,28 +208,26 @@ def debias_prompts(prompts, race_classes, race_chosen_idx, race_target_dist, rac
     for prompt in prompts:
         results = extract_and_classify_nouns(prompt)
         results = [r for r in results if r[3]]
-        prechosen_noun = None
         if results:
             if prechosen_noun:
                 chosen_noun, idx, token, is_human = prechosen_noun
             else:
                 chosen_noun, idx, token, is_human = random.choice(results)
             attributes = []
-            #print(f"Noun to be debiased: {chosen_noun}")
             if random.random() > race_dropout:
-                if race_chosen_idx:
+                if race_chosen_idx is not None:
                     race = race_classes[race_chosen_idx]
                 else:
                     race = np.random.choice(race_classes, p=race_target_dist)
                 attributes.append(race)
             if random.random() > gender_dropout:
-                if gender_chosen_idx:
+                if gender_chosen_idx is not None:
                     gender = gender_classes[gender_chosen_idx]
                 else:
                     gender = np.random.choice(gender_classes, p=gender_target_dist)
                 attributes.append(gender)
             if random.random() > age_dropout:
-                if age_chosen_idx:
+                if age_chosen_idx is not None:
                     age = age_classes[age_chosen_idx]
                 else:
                     age = np.random.choice(age_classes, p=age_target_dist)
@@ -179,8 +238,26 @@ def debias_prompts(prompts, race_classes, race_chosen_idx, race_target_dist, rac
         debiased_prompts.append(debiased_prompt)
     return debiased_prompts
 
+def debias_prompts_defaults(prompts: List[str], 
+                            seed: int, 
+                            prechosen_noun: Optional[Tuple[str, int, spacy.tokens.Token, bool]] = None,
+                            race_chosen_idx: Optional[int] = None, 
+                            gender_chosen_idx: Optional[int] = None, 
+                            age_chosen_idx: Optional[int] = None) -> List[str]:
+    """
+    Debias prompts using default settings for attributes and distributions.
 
-def debias_prompts_defaults(prompts, seed, prechosen_noun=None, race_chosen_idx=None, gender_chosen_idx=None, age_chosen_idx=None):
+    Args:
+        prompts (List[str]): List of input prompt strings.
+        seed (int): Random seed for reproducibility.
+        prechosen_noun (Optional[Tuple[str, int, spacy.tokens.Token, bool]]): Pre-chosen noun to debias, if any.
+        race_chosen_idx (Optional[int]): Index of chosen race class, if any.
+        gender_chosen_idx (Optional[int]): Index of chosen gender class, if any.
+        age_chosen_idx (Optional[int]): Index of chosen age class, if any.
+
+    Returns:
+        List[str]: List of debiased prompts.
+    """
     return debias_prompts(
         prompts,
         race_classes=["white", "black", "asian", "indian"],

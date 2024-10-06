@@ -1,3 +1,23 @@
+"""
+Face Detection Module for DebiasDiffusion
+
+This module provides face detection functionality for the DebiasDiffusion project.
+It uses a combination of InsightFace and face_recognition libraries to detect and
+align faces in images.
+
+The FaceDetector class offers methods to detect faces, align them, and handle
+cases where multiple faces are present in an image.
+
+Usage:
+    from src.utils.face_detection import get_face_detector
+
+    face_detector = get_face_detector(gpu_id=0)
+    success, bbox, face_chip, aligned_face = face_detector.detect_and_align_face(image_tensor)
+
+Note:
+    This module requires the InsightFace and face_recognition libraries to be installed.
+"""
+
 import torch
 import numpy as np
 from torchvision.transforms import ToTensor
@@ -6,9 +26,16 @@ from insightface.app import FaceAnalysis
 from PIL import Image
 from skimage import transform
 import kornia
+from typing import Tuple, Optional, List, Union
 
 class FaceDetector:
-    def __init__(self, gpu_id=0):
+    def __init__(self, gpu_id: int = 0):
+        """
+        Initialize the FaceDetector.
+
+        Args:
+            gpu_id (int): The ID of the GPU to use. Defaults to 0.
+        """
         self.device = f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu"
         
         self.face_app = FaceAnalysis(
@@ -19,7 +46,29 @@ class FaceDetector:
         )
         self.face_app.prepare(ctx_id=gpu_id, det_size=(640, 640))
         
-    def detect_and_align_face(self, image_tensor, size_face=224, size_aligned_face=112, fill_value=-1):
+    def detect_and_align_face(
+        self,
+        image_tensor: torch.Tensor,
+        size_face: int = 224,
+        size_aligned_face: int = 112,
+        fill_value: float = -1
+    ) -> Tuple[bool, Optional[List[int]], Optional[torch.Tensor], Optional[torch.Tensor]]:
+        """
+        Detect and align a face in the given image tensor.
+
+        Args:
+            image_tensor (torch.Tensor): Input image tensor.
+            size_face (int): Size of the output face chip. Defaults to 224.
+            size_aligned_face (int): Size of the aligned face. Defaults to 112.
+            fill_value (float): Fill value for padding. Defaults to -1.
+
+        Returns:
+            Tuple containing:
+            - bool: True if a face was detected, False otherwise.
+            - Optional[List[int]]: Bounding box of the detected face, or None if no face detected.
+            - Optional[torch.Tensor]: Face chip tensor, or None if no face detected.
+            - Optional[torch.Tensor]: Aligned face tensor, or None if no face detected.
+        """
         image_np = ((image_tensor * 0.5 + 0.5) * 255).cpu().permute(1, 2, 0).numpy().astype(np.uint8)
         
         faces_insight = self.face_app.get(image_np[:,:,[2,1,0]])  # Convert to BGR for InsightFace
@@ -49,9 +98,20 @@ class FaceDetector:
         face_chip = self.crop_face(image_tensor, bbox, target_size=[size_face, size_face], fill_value=fill_value)
         aligned_face_chip = self.align_face(image_tensor, landmarks, size=size_aligned_face)
         
-        return True, bbox, face_chip, aligned_face_chip
+        return True, bbox.tolist(), face_chip, aligned_face_chip
 
-    def expand_bbox(self, bbox, expand_coef, target_ratio):
+    def expand_bbox(self, bbox: np.ndarray, expand_coef: float, target_ratio: float) -> List[int]:
+        """
+        Expand the bounding box to achieve a target aspect ratio.
+
+        Args:
+            bbox (np.ndarray): Original bounding box [left, top, right, bottom].
+            expand_coef (float): Expansion coefficient.
+            target_ratio (float): Target aspect ratio (height / width).
+
+        Returns:
+            List[int]: Expanded bounding box [left, top, right, bottom].
+        """
         bbox_width = bbox[2] - bbox[0]
         bbox_height = bbox[3] - bbox[1]
         
@@ -71,7 +131,25 @@ class FaceDetector:
         ]
         return bbox_new
 
-    def crop_face(self, img_tensor, bbox, target_size, fill_value):
+    def crop_face(
+        self,
+        img_tensor: torch.Tensor,
+        bbox: List[int],
+        target_size: List[int],
+        fill_value: float
+    ) -> torch.Tensor:
+        """
+        Crop the face from the image tensor based on the bounding box.
+
+        Args:
+            img_tensor (torch.Tensor): Input image tensor.
+            bbox (List[int]): Bounding box [left, top, right, bottom].
+            target_size (List[int]): Target size of the cropped face [height, width].
+            fill_value (float): Fill value for padding.
+
+        Returns:
+            torch.Tensor: Cropped and resized face tensor.
+        """
         img_height, img_width = img_tensor.shape[-2:]
         
         left, top, right, bottom = bbox
@@ -85,7 +163,18 @@ class FaceDetector:
         
         return face
 
-    def align_face(self, img_tensor, landmarks, size=112):
+    def align_face(self, img_tensor: torch.Tensor, landmarks: np.ndarray, size: int = 112) -> torch.Tensor:
+        """
+        Align the face using facial landmarks.
+
+        Args:
+            img_tensor (torch.Tensor): Input image tensor.
+            landmarks (np.ndarray): Facial landmarks.
+            size (int): Size of the output aligned face. Defaults to 112.
+
+        Returns:
+            torch.Tensor: Aligned face tensor.
+        """
         src = np.array([
             [38.2946, 51.6963],
             [73.5318, 51.5014],
@@ -111,7 +200,18 @@ class FaceDetector:
         
         return aligned_face
 
-    def get_largest_face_app(self, faces, dim_max, dim_min):
+    def get_largest_face_app(self, faces: List[Any], dim_max: int, dim_min: int) -> Any:
+        """
+        Get the largest face detected by InsightFace.
+
+        Args:
+            faces (List[Any]): List of detected faces.
+            dim_max (int): Maximum dimension of the image.
+            dim_min (int): Minimum dimension of the image.
+
+        Returns:
+            Any: The largest face object.
+        """
         if len(faces) == 1:
             return faces[0]
         
@@ -125,7 +225,18 @@ class FaceDetector:
                 largest_face = face
         return largest_face
 
-    def get_largest_face_FR(self, faces, dim_max, dim_min):
+    def get_largest_face_FR(self, faces: List[Tuple[int, int, int, int]], dim_max: int, dim_min: int) -> Tuple[int, int, int, int]:
+        """
+        Get the largest face detected by face_recognition.
+
+        Args:
+            faces (List[Tuple[int, int, int, int]]): List of detected faces.
+            dim_max (int): Maximum dimension of the image.
+            dim_min (int): Minimum dimension of the image.
+
+        Returns:
+            Tuple[int, int, int, int]: The largest face bounding box.
+        """
         if len(faces) == 1:
             return faces[0]
         
@@ -139,5 +250,14 @@ class FaceDetector:
                 largest_face = face
         return largest_face
 
-def get_face_detector(gpu_id):
+def get_face_detector(gpu_id: int) -> FaceDetector:
+    """
+    Create and return a FaceDetector instance.
+
+    Args:
+        gpu_id (int): The ID of the GPU to use.
+
+    Returns:
+        FaceDetector: An instance of the FaceDetector class.
+    """
     return FaceDetector(gpu_id)
