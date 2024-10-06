@@ -1,4 +1,34 @@
-import torch
+"""
+H-Space Classifier Evaluation for DebiasDiffusion
+
+This script evaluates the performance of h-space classifiers used in the DebiasDiffusion project.
+It loads a pre-created dataset of h-vectors with labels, applies the classifiers, and generates
+performance plots and metrics.
+
+Usage:
+    python src/sections/section_6.2/evaluate_dataset.py [--args]
+
+Arguments:
+    --dataset_path: Path to the dataset file (default: BASE_DIR / "data/experiments/section_6.2/h_space_data/dataset_5k.pt")
+    --output_path: Directory to save results (default: BASE_DIR / "results/section_6.2/h_space_evaluation")
+    --batch_size: Batch size for evaluation (default: 256)
+    --use_fp16: Use half precision for evaluation (default: True)
+    --attributes: List of attributes to evaluate (default: gender race age)
+    --dataset_sizes: List of dataset sizes to evaluate (default: 5k)
+    --methods: List of methods to evaluate (default: qq qqff qqff_v2)
+    --fontsize_base: Base font size for plots (default: 14)
+    --fontsize_label: Font size for axis labels (default: 16)
+    --fontsize_title: Font size for plot titles (default: 16)
+    --fontsize_tick: Font size for tick labels (default: 14)
+    --fontsize_legend: Font size for legends (default: 16)
+    --fontsize_text: Font size for additional text in plots (default: 14)
+
+Outputs:
+    - PNG and SVG plots of classifier accuracy over timesteps
+    - CSV file with evaluation results
+    - Console output with evaluation summary
+"""
+
 import argparse
 import os
 import sys
@@ -7,15 +37,33 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from tqdm import tqdm
 import numpy as np
+import torch
+import pandas as pd
+from typing import Dict, List, Tuple
+from pathlib import Path
 
-script_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(os.path.abspath(os.path.join(script_dir, '..', '..', 'custom')))
-sys.path.append(os.path.abspath(os.path.join(script_dir, '..', '..', 'aux')))
+# Add project root to Python path
+SCRIPT_DIR = Path(__file__).resolve().parent
+BASE_DIR = SCRIPT_DIR.parent.parent.parent
+sys.path.append(str(BASE_DIR))
 
-from classifier import make_classifier_model
-from script_util import add_dict_to_argparser, classifier_and_diffusion_defaults
+from src.utils.classifier import make_classifier_model
+from src.utils.plotting_utils import save_plot
 
-def load_classifier(classifier_path, device, num_classes, model_type, use_fp16=True):
+def load_classifier(classifier_path: str, device: torch.device, num_classes: int, model_type: str, use_fp16: bool = True) -> torch.nn.Module:
+    """
+    Load a classifier model from a file.
+
+    Args:
+        classifier_path (str): Path to the classifier model file.
+        device (torch.device): Device to load the model on.
+        num_classes (int): Number of output classes for the classifier.
+        model_type (str): Type of classifier model.
+        use_fp16 (bool): Whether to use half precision.
+
+    Returns:
+        torch.nn.Module: Loaded classifier model.
+    """
     classifier = make_classifier_model(
         in_channels=1280,
         image_size=8,
@@ -33,19 +81,51 @@ def load_classifier(classifier_path, device, num_classes, model_type, use_fp16=T
     
     return classifier.to(device)
 
-def load_dataset(dataset_path):
+def load_dataset(dataset_path: str) -> torch.Tensor:
+    """
+    Load the evaluation dataset.
+
+    Args:
+        dataset_path (str): Path to the dataset file.
+
+    Returns:
+        torch.Tensor: Loaded dataset.
+    """
     return torch.load(dataset_path)
 
-def mask_h_vectors(h_debiased, timestep):
+def mask_h_vectors(h_debiased: torch.Tensor, timestep: int) -> torch.Tensor:
     """
-    Mask h_debiased vectors for timesteps after the current one.
-    Fill the rest with zeros (neutral value).
+    Mask h-space vectors for timesteps after the current one.
+
+    Args:
+        h_debiased (torch.Tensor): H-space vectors.
+        timestep (int): Current timestep.
+
+    Returns:
+        torch.Tensor: Masked h-space vectors.
     """
     masked = h_debiased.clone()
     masked[:, timestep+1:] = 0
     return masked
 
-def evaluate_classifiers(classifiers, dataset, device, batch_size, use_fp16):
+def evaluate_classifiers(classifiers: Dict[str, Tuple[torch.nn.Module, str, str]], 
+                         dataset: List[Dict[str, torch.Tensor]], 
+                         device: torch.device, 
+                         batch_size: int, 
+                         use_fp16: bool) -> Dict[str, np.ndarray]:
+    """
+    Evaluate the performance of classifiers on the dataset.
+
+    Args:
+        classifiers (Dict[str, Tuple[torch.nn.Module, str, str]]): Dictionary of classifiers.
+        dataset (List[Dict[str, torch.Tensor]]): Evaluation dataset.
+        device (torch.device): Device to run evaluation on.
+        batch_size (int): Batch size for evaluation.
+        use_fp16 (bool): Whether to use half precision.
+
+    Returns:
+        Dict[str, np.ndarray]: Evaluation results for each classifier.
+    """
     results = {name: [] for name in classifiers}
     
     num_batches = len(dataset) // batch_size
@@ -62,12 +142,12 @@ def evaluate_classifiers(classifiers, dataset, device, batch_size, use_fp16):
                   for attr in batch_data[0]['labels']}
         
         for name, (classifier, attr, model_type) in classifiers.items():
-            if model_type == "single_layer":
+            if model_type == "linear":
                 predictions = []
                 for t in range(50):
                     masked_h = mask_h_vectors(h_debiased, t)
-                    logits = classifier(masked_h)  # Shape: [batch_size, 50, num_classes]
-                    preds = torch.argmax(logits[:, t], dim=-1)
+                    logits = classifier(masked_h[:, t], torch.full((batch_size,), t, device=device))
+                    preds = torch.argmax(logits, dim=1)
                     correct = (preds == labels[attr]).float()
                     predictions.append(correct.mean().item())
                 results[name].append(predictions)
@@ -83,7 +163,17 @@ def evaluate_classifiers(classifiers, dataset, device, batch_size, use_fp16):
     
     return {name: np.mean(preds, axis=0) for name, preds in results.items()}
 
-def plot_results(results, output_path):
+def plot_results(results: Dict[str, np.ndarray], 
+                 output_path: Path, 
+                 font_sizes: Dict[str, int]) -> None:
+    """
+    Plot the evaluation results.
+
+    Args:
+        results (Dict[str, np.ndarray]): Evaluation results for each classifier.
+        output_path (Path): Path to save the plot.
+        font_sizes (Dict[str, int]): Font sizes for different plot elements.
+    """
     plt.figure(figsize=(12, 8))
     sns.set_style("whitegrid")
 
@@ -114,85 +204,85 @@ def plot_results(results, output_path):
             plt.plot(range(50), accuracies * 100, label=f"{attr.capitalize()} - {name}",
                      color=color, linestyle=linestyle)
 
-    plt.xlabel("Timestep", fontsize=14)
-    plt.ylabel("Accuracy (%)", fontsize=14)
+    plt.xlabel("Timestep", fontsize=font_sizes['label'])
+    plt.ylabel("Accuracy (%)", fontsize=font_sizes['label'])
     plt.ylim(0, 100)
-    plt.title("Classifier Accuracy over Diffusion Timesteps", fontsize=16)
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=12)
+    plt.title("Classifier Accuracy over Diffusion Timesteps", fontsize=font_sizes['title'])
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=font_sizes['legend'])
     plt.tight_layout()
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    plt.close()
+    
+    save_plot(plt, output_path, dpi=300)
 
-def main():
-    args = create_argparser().parse_args()
-    
+def main(args: argparse.Namespace) -> None:
+    """
+    Main function to run the evaluation.
+
+    Args:
+        args (argparse.Namespace): Command-line arguments.
+    """
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
-    args.dataset_path = os.path.join(script_dir, args.dataset_path)
     
     dataset = load_dataset(args.dataset_path)
     
     classifiers = {}
-    for classifier_info in args.classifiers:
-        name, path, attr, num_classes, model_type = classifier_info.split(',')
-        path = os.path.join(script_dir, path)
-        classifiers[name] = (load_classifier(path, device, int(num_classes), model_type, args.use_fp16), attr, model_type)
+    for attr in args.attributes:
+        for size in args.dataset_sizes:
+            for method in args.methods:
+                name = f"{attr}_{size}_{method}"
+                path = BASE_DIR / f"data/model_data/h_space_classifiers/{method}/{size}/{attr}_{size}_e100_bs256_lr0.0001_tv0.8/best_model.pt"
+                num_classes = 2 if attr in ['gender', 'age'] else 4
+                classifiers[name] = (load_classifier(str(path), device, num_classes, "linear", args.use_fp16), attr, "linear")
     
     results = evaluate_classifiers(classifiers, dataset, device, args.batch_size, args.use_fp16)
     
-    output_dir = os.path.join(script_dir, args.output_path)
-    os.makedirs(output_dir, exist_ok=True)
-    plot_results(results, os.path.join(output_dir, "classifier_accuracy.png"))
-    plot_results(results, os.path.join(output_dir, "classifier_accuracy.svg"))
+    output_dir = Path(args.output_path)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-def create_argparser():
-    attribute1 = "race"
-    attribute2 = "age"
-    attribute3 = "gender"
-    k=5
-    defaults = classifier_and_diffusion_defaults()
-    defaults.update(dict(
-        dataset_path="evaluation_datasets/dataset_5k.pt",
-        output_path=f"results/qqff/{k}k",
-        batch_size=256,
-        use_fp16=True,
-        classifiers=[
-            f"{attribute1}_{k}k_qqff_v2,classifiers_all/classifiers_qqff_v2/{k}k/{attribute1}_{k}k_e100_bs256_lr0.0001_tv0.8_v2/best_model.pt,{attribute1},4,linear",
-            f"{attribute1}_{k}k_qqff,classifiers_all/classifiers_qqff/{k}k/{attribute1}_{k}k_e100_bs256_lr0.0001_tv0.8/best_model.pt,{attribute1},4,linear",
-            f"{attribute1}_{k}k_qq,classifiers_all/classifiers_qq/{k}k/{attribute1}_{k}k_e60_bs256_lr0.0001_tv0.8/best_model.pt,{attribute1},4,linear",
-            
-            f"{attribute2}_{k}k_qqff_v2,classifiers_all/classifiers_qqff_v2/{k}k/{attribute2}_{k}k_e100_bs256_lr0.0001_tv0.8_v2/best_model.pt,{attribute2},2,linear",
-            f"{attribute2}_{k}k_qqff,classifiers_all/classifiers_qqff/{k}k/{attribute2}_{k}k_e100_bs256_lr0.0001_tv0.8/best_model.pt,{attribute2},2,linear",
-            f"{attribute2}_{k}k_qq,classifiers_all/classifiers_qq/{k}k/{attribute2}_{k}k_e60_bs256_lr0.0001_tv0.8/best_model.pt,{attribute2},2,linear",
-            
-            f"{attribute3}_{k}k_qqff_v2,classifiers_all/classifiers_qqff_v2/{k}k/{attribute3}_{k}k_e100_bs256_lr0.0001_tv0.8_v2/best_model.pt,{attribute3},2,linear",
-            f"{attribute3}_{k}k_qqff,classifiers_all/classifiers_qqff/{k}k/{attribute3}_{k}k_e100_bs256_lr0.0001_tv0.8/best_model.pt,{attribute3},2,linear",
-            f"{attribute3}_{k}k_qq,classifiers_all/classifiers_qq/{k}k/{attribute3}_{k}k_e60_bs256_lr0.0001_tv0.8/best_model.pt,{attribute3},2,linear",
-        ]
-    ))
-    
-    # All qq only
-    """ f"{attribute1}_01k,classifiers_all/.1k/{attribute1}_01_e80/best_model.pt,{attribute1},4,multi_layer",
-    f"{attribute1}_05k,classifiers_all/.5k/{attribute1}_05_e60/best_model.pt,{attribute1},4,multi_layer",
-    f"{attribute1}_1k,classifiers_all/1k/{attribute1}_1k_e60_bs500_lr0.0001/best_model.pt,{attribute1},4,multi_layer",
-    f"{attribute1}_2k,classifiers_all/2k/{attribute1}_2k_e60_bs500_lr0.0001/best_model.pt,{attribute1},4,multi_layer",
-    f"{attribute1}_5k,classifiers_all/5k/{attribute1}_5k_e60_bs256_lr0.0001_tv0.8/best_model.pt,{attribute1},4,multi_layer",
-    
-    f"{attribute2}_01k,classifiers_all/.1k/{attribute2}_01k_e40_bs100_lr0.0001_tv0.8/best_model.pt,{attribute2},2,multi_layer",
-    f"{attribute2}_05k,classifiers_all/.5k/{attribute2}_05k_e40_bs500_lr0.0001_tv0.8/best_model.pt,{attribute2},2,multi_layer",
-    f"{attribute2}_1k,classifiers_all/1k/{attribute2}_1k_e40_bs512_lr0.0001_tv0.8/best_model.pt,{attribute2},2,multi_layer",
-    f"{attribute2}_2k,classifiers_all/2k/{attribute2}_2k_e40_bs512_lr0.0001_tv0.8/best_model.pt,{attribute2},2,multi_layer",
-    f"{attribute2}_5k,classifiers_all/5k/{attribute2}_5k_e40_bs256_lr0.0001_tv0.8/best_model.pt,{attribute2},2,multi_layer",
-    
-    f"{attribute3}_01k,classifiers_all/.1k/{attribute3}_01k_e60_bs100_lr0.0001_tv0.8/best_model.pt,{attribute3},2,multi_layer",
-    f"{attribute3}_05k,classifiers_all/.5k/{attribute3}_05k_e60_bs256_lr0.0001_tv0.8/best_model.pt,{attribute3},2,multi_layer",
-    f"{attribute3}_1k,classifiers_all/1k/{attribute3}_1k_e60_bs512_lr0.0001_tv0.8/best_model.pt,{attribute3},2,multi_layer",
-    f"{attribute3}_2k,classifiers_all/2k/{attribute3}_2k_e30_bs512_lr0.0001_tv0.6/best_model.pt,{attribute3},2,multi_layer",
-    f"{attribute3}_5k,classifiers_all/5k/{attribute3}_5k_e30_bs256_lr0.0001_tv0.6/best_model.pt,{attribute3},2,multi_layer", """
-    
-    parser = argparse.ArgumentParser()
-    add_dict_to_argparser(parser, defaults)
-    return parser
+    font_sizes = {
+        'base': args.fontsize_base,
+        'label': args.fontsize_label,
+        'title': args.fontsize_title,
+        'tick': args.fontsize_tick,
+        'legend': args.fontsize_legend,
+        'text': args.fontsize_text
+    }
+
+    plot_results(results, output_dir / "classifier_accuracy", font_sizes)
+
+    # Save results to CSV
+    results_df = pd.DataFrame(results)
+    results_df.to_csv(output_dir / "classifier_accuracy.csv", index=False)
+
+    print(f"Evaluation completed. Results saved to {output_dir}")
+
+def parse_args() -> argparse.Namespace:
+    """
+    Parse command-line arguments.
+
+    Returns:
+        argparse.Namespace: Parsed arguments.
+    """
+    parser = argparse.ArgumentParser(description="Evaluate h-space classifiers for DebiasDiffusion")
+    parser.add_argument("--dataset_path", type=str, default=str(BASE_DIR / "data/experiments/section_6.2/h_space_data/dataset_5k.pt"), 
+                        help="Path to the dataset file")
+    parser.add_argument("--output_path", type=str, default=str(BASE_DIR / "results/section_6.2/h_space_evaluation"), 
+                        help="Directory to save results")
+    parser.add_argument("--batch_size", type=int, default=256, help="Batch size for evaluation")
+    parser.add_argument("--use_fp16", action="store_true", default=True, help="Use half precision for evaluation")
+    parser.add_argument("--attributes", nargs='+', default=['gender', 'race', 'age'], 
+                        help="List of attributes to evaluate")
+    parser.add_argument("--dataset_sizes", nargs='+', default=['5k'], 
+                        help="List of dataset sizes to evaluate")
+    parser.add_argument("--methods", nargs='+', default=['qq', 'qqff', 'qqff_v2'], 
+                        help="List of methods to evaluate")
+    parser.add_argument("--fontsize_base", type=int, default=14, help="Base font size")
+    parser.add_argument("--fontsize_label", type=int, default=16, help="Font size for axis labels")
+    parser.add_argument("--fontsize_title", type=int, default=16, help="Font size for plot titles")
+    parser.add_argument("--fontsize_tick", type=int, default=14, help="Font size for tick labels")
+    parser.add_argument("--fontsize_legend", type=int, default=16, help="Font size for legends")
+    parser.add_argument("--fontsize_text", type=int, default=14, help="Font size for additional text in plots")
+    return parser.parse_args()
 
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+    main(args)
