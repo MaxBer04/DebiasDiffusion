@@ -56,4 +56,4 @@ The `results/` directory will contain the outputs from the various scripts provi
 
 This work is based on the Stable Diffusion model by Stability AI and uses the HuggingFace Diffusers library. We acknowledge their contributions to the field of text-to-image generation.
 
-For further assistance, please contact the author under [maber133@uni-duesseldorf.de](maber133@uni-duesseldorf.de).
+For further assistance, please contact the author at [maber133@uni-duesseldorf.de](maber133@uni-duesseldorf.de).

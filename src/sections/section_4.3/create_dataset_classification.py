@@ -1,333 +1,200 @@
+"""
+Dataset Creation for h-Space Classifier Training
+
+This script generates a dataset for training h-space classifiers in the DebiasDiffusion project.
+It uses a list of occupations to create prompts, generates images, and collects corresponding
+h-space vectors along with attribute labels.
+
+Usage:
+    python src/sections/section_4.3/create_dataset_classification.py [--args]
+
+Arguments:
+    --model_id: HuggingFace model ID or path to local model (default: "runwayml/stable-diffusion-v1-5")
+    --num_images: Number of images to generate per occupation (default: 10)
+    --occupations_file: Path to JSON file containing occupations list (default: BASE_DIR / "data/experiments/section_4.3/occupations.json")
+    --output_dir: Directory to save output files (default: BASE_DIR / "data/experiments/section_4.3/h_space_data")
+    --batch_size: Batch size for image generation (default: 32)
+    --use_classifiers: Use face detection and attribute classifiers for labeling (default: False)
+    --seed: Random seed for reproducibility (default: 42)
+    --attributes: List of attributes to consider (default: ['gender', 'race', 'age'])
+
+Outputs:
+    - h-space vectors and corresponding labels saved as PyTorch tensors
+    - Metadata CSV file with generation details
+"""
+
 import torch
-import argparse
 import os
-import random
 import sys
-import numpy as np
+import random
 import json
-from torchvision.transforms import ToTensor, ToPILImage
+import argparse
+from pathlib import Path
 from tqdm import tqdm
-from accelerate import Accelerator
-import time
-import gc
-from PIL import Image
-import matplotlib.pyplot as plt
-import shutil
+from typing import List, Dict, Any, Optional, Tuple
+from torchvision.transforms import ToTensor
 
-script_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(os.path.abspath(os.path.join(script_dir, '..', '..', 'custom')))
-sys.path.append(os.path.abspath(os.path.join(script_dir, '..', '..', 'aux')))
+# Add project root to Python path
+SCRIPT_DIR = Path(__file__).resolve().parent
+BASE_DIR = SCRIPT_DIR.parent.parent.parent
+sys.path.append(str(BASE_DIR))
 
-from switching_pipeline import SwitchingDiffusionPipeline
-from face_detection import get_face_detector
-from attribute_classification import get_attribute_classifier, classify_attribute
-from script_util import (
-    add_dict_to_argparser,
-    classifier_and_diffusion_defaults,
-)
+from src.pipelines.debias_diffusion_pipeline import DebiasDiffusionPipeline
+from src.utils.face_detection import get_face_detector
+from src.utils.attribute_classification import get_attribute_classifier, classify_attribute
 
-def load_diffusion_model(args):
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    if args.model_type == "SD-1.5":
-        pipe = SwitchingDiffusionPipeline.from_pretrained(args.model_path, torch_dtype=torch.float16).to(device)
-        args.num_inference_steps = 50
+ATTRIBUTE_CLASSES = {
+    'gender': ['male', 'female'],
+    'race': ['white', 'black', 'asian', 'indian'],
+    'age': ['young', 'old']
+}
+
+def set_seed(seed: int) -> None:
+    """Set random seed for reproducibility."""
+    random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+def load_occupations(file_path: Path) -> List[str]:
+    """Load occupations from a JSON file."""
+    with open(file_path, 'r') as f:
+        data = json.load(f)
+    return data['occupations']
+
+def setup_pipeline(model_id: str, device: torch.device) -> DebiasDiffusionPipeline:
+    """Set up the DebiasDiffusion pipeline."""
+    pipe = DebiasDiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16).to(device)
+    pipe.use_debiasing = False
+    pipe.safety_checker = None
     return pipe
 
-def load_occupations(file_path):
-    with open(file_path, 'r') as f:
-        return json.load(f)['occupations']
-
-def setup_attribute_info():
-    return {
-        'age': {'num_classes': 2, 'attributes': ["young", "old"]},
-        'gender': {'num_classes': 2, 'attributes': ["male", "female"]},
-        'race': {'num_classes': 4, 'attributes': ["white", "black", "asian", "indian"]}
-    }
-
-def generate_prompt(occupation, available_attributes):
-    prompt_parts = []
-    inserted_attributes = {}
-    
-    for attr, attr_info in available_attributes.items():
-        if attr_info['attributes']:
-            chosen_attr = random.choice(attr_info['attributes'])
-            prompt_parts.append(chosen_attr)
-            inserted_attributes[attr] = chosen_attr
-    
-    prompt = f"A photo of the face of a {' '.join(prompt_parts)} {occupation}, a person"
-    return prompt, inserted_attributes
-
-def generate_data_batch(pipe, batch_size, seed, occupations, device, face_detector, attribute_classifiers, attribute_info, available_attributes):
-    torch.manual_seed(seed)
-    random.seed(seed)
-    
-    prompts = []
-    inserted_attributes_list = []
-    
-    for _ in range(batch_size):
-        occupation = random.choice(occupations)
-        prompt, inserted_attributes = generate_prompt(occupation, available_attributes)
-        prompts.append(prompt)
-        inserted_attributes_list.append(inserted_attributes)
-    
-    generator = torch.Generator(device=pipe.device).manual_seed(seed)
-    
-    with torch.no_grad():
-        res_debiased = pipe(
-            prompt=prompts,
-            negative_prompt=None,
-            debias=False,
-            generator=generator,
-            num_inference_steps=50,
-            num_images_per_prompt=1,
-            return_dict=False
-        )
-    
-    generated_images = [ToTensor()(img) for img in res_debiased[0]]
-    h_debiased = torch.stack(res_debiased[5][:50])  # Shape: [50, batch_size, 1280, 8, 8]
-    
-    print("Checking for faces and classifying attributes...")
-    valid_indices = []
-    images_with_faces = []
-    attribute_predictions = {attr: [] for attr in attribute_info.keys()}
-    valid_occupations = []
-    valid_inserted_attributes = []
-    
-    for i, img in enumerate(generated_images):
-        face_detected, face_chip = face_detector.detect_and_align_face(img)
-        if face_detected:
-            valid_indices.append(i)
-            images_with_faces.append(face_chip)
-            for attr, classifier in attribute_classifiers.items():
-                probs = classify_attribute(face_chip, classifier, attr)
-                attribute_predictions[attr].append(probs)
-            valid_occupations.append(occupations[i])
-            valid_inserted_attributes.append(inserted_attributes_list[i])
-    
-    h_debiased = h_debiased[:, valid_indices]
-    
-    print(f"Retained images after face check: {len(valid_indices)}/{len(prompts)}")
-    
-    del generated_images, res_debiased
-    torch.cuda.empty_cache()
-    
-    return h_debiased, attribute_predictions, images_with_faces, valid_occupations, valid_inserted_attributes
-
-def create_dataset(args, pipe, occupations, device, face_detector, attribute_classifiers, attribute_info):
-    batch_size = args.batch_size
-    output_dir = os.path.join(script_dir, args.output_path)
-    temp_dir = os.path.join(output_dir, "temp")
-    os.makedirs(temp_dir, exist_ok=True)
-    
-    class_counts = {attr: {class_: 0 for class_ in info['attributes']} for attr, info in attribute_info.items()}
-    target_counts = {attr: args.num_images // len(info['attributes']) for attr, info in attribute_info.items()}
-    
-    available_attributes = {attr: {'attributes': list(info['attributes'])} for attr, info in attribute_info.items()}
-    
-    mismatch_counts = {attr: {class_: 0 for class_ in info['attributes']} for attr, info in attribute_info.items()}
-    total_processed = 0
-    
-    start_time = time.time()
-    pbar = tqdm(total=args.num_images, desc="Creating dataset")
-    
-    temp_file_count = 0
-    
-    while any(any(count < target_counts[attr] for count in attr_counts.values()) for attr, attr_counts in class_counts.items()):
-        seed = args.seed + total_processed
-        h_debiased, attribute_preds, images_with_faces, batch_occupations, inserted_attributes = generate_data_batch(
-            pipe, batch_size, seed, occupations, device, face_detector, attribute_classifiers, attribute_info, available_attributes
-        )
-
-        batch_dataset = []
-        for j in range(h_debiased.shape[1]):
-            is_valid = True
-            pred_classes = {}
-
-            for attr, preds in attribute_preds.items():
-                pred = preds[j]
-                pred_class = attribute_info[attr]['attributes'][np.argmax(pred)]
-                pred_classes[attr] = pred_class
-                
-                if class_counts[attr][pred_class] >= target_counts[attr]:
-                    is_valid = False
-                    break
-                
-                inserted_value = inserted_attributes[j].get(attr)
-                if inserted_value and inserted_value.lower() != pred_class.lower():
-                    mismatch_counts[attr][inserted_value] += 1
-            
-            if is_valid:
-                dataset_item = {
-                    "h_debiased": h_debiased[:, j].cpu(),  # Shape: [50, 1280, 8, 8]
-                    "labels": {attr: preds[j] for attr, preds in attribute_preds.items()},
-                    "occupation": batch_occupations[j],
-                    "inserted_attributes": inserted_attributes[j],
-                    "image": images_with_faces[j]
-                }
-                
-                batch_dataset.append(dataset_item)
-                for attr, pred_class in pred_classes.items():
-                    class_counts[attr][pred_class] += 1
-                    if class_counts[attr][pred_class] == target_counts[attr]:
-                        if pred_class in available_attributes[attr]['attributes']:
-                            available_attributes[attr]['attributes'].remove(pred_class)
-                        print(f"Class {pred_class} for attribute {attr} is now full!")
-
-                total_processed += 1
-                pbar.update(1)
-                
-                if total_processed % 100 == 0:
-                    print(f"\nProcessed {total_processed} images")
-                    print("Current class counts:")
-                    for attr, counts in class_counts.items():
-                        print(f"{attr.capitalize()}:")
-                        for class_, count in counts.items():
-                            print(f"  {class_}: {count}/{target_counts[attr]}")
-            
-        # Save batch to temporary file
-        temp_file_path = os.path.join(temp_dir, f"temp_dataset_{temp_file_count}.pt")
-        torch.save(batch_dataset, temp_file_path)
-        temp_file_count += 1
-        
-        del h_debiased, attribute_preds, images_with_faces, batch_occupations, inserted_attributes, batch_dataset
-        gc.collect()
-        torch.cuda.empty_cache()
-    
-    pbar.close()
-    end_time = time.time()
-    total_time = end_time - start_time
-    print(f"Total time taken to create dataset: {total_time:.2f} seconds")
-    
-    mismatch_stats = calculate_mismatch_stats(mismatch_counts, total_processed)
-    
-    return class_counts, mismatch_stats, temp_dir, total_processed
-
-def calculate_mismatch_stats(mismatch_counts, total_processed):
-    if isinstance(mismatch_counts, dict):
-        mismatch_percentages = {
-            attr: {
-                class_: (count / total_processed) * 100 if total_processed > 0 else 0
-                for class_, count in attr_counts.items()
-            } if isinstance(attr_counts, dict) else 0
-            for attr, attr_counts in mismatch_counts.items()
-        }
-        total_mismatch_counts = {
-            attr: sum(counts.values()) if isinstance(counts, dict) else counts
-            for attr, counts in mismatch_counts.items()
-        }
-    else:
-        mismatch_percentages = 0
-        total_mismatch_counts = mismatch_counts
-
-    total_mismatch_percentages = {
-        attr: (count / total_processed) * 100 if total_processed > 0 else 0
-        for attr, count in total_mismatch_counts.items()
-    } if isinstance(total_mismatch_counts, dict) else 0
-
-    overall_mismatch_percentage = (sum(total_mismatch_counts.values()) / (total_processed * len(mismatch_counts))) * 100 if isinstance(total_mismatch_counts, dict) and total_processed > 0 and len(mismatch_counts) > 0 else 0
-    
-    return {
-        "overall_mismatch_percentage": overall_mismatch_percentage,
-        "total_mismatch_percentages": total_mismatch_percentages,
-        "mismatch_percentages": mismatch_percentages
-    }
-
-def save_dataset(class_counts, mismatch_stats, temp_dir, num_images, output_dir):
-    dataset_dir = os.path.join(output_dir, f"{num_images//1000}k")
-    os.makedirs(dataset_dir, exist_ok=True)
-    
-    # Combine all temporary datasets
-    combined_dataset = []
-    for temp_file in os.listdir(temp_dir):
-        if temp_file.endswith(".pt"):
-            temp_data = torch.load(os.path.join(temp_dir, temp_file))
-            combined_dataset.extend(temp_data)
-    
-    # Save combined dataset
-    dataset_path = os.path.join(dataset_dir, "dataset.pt")
-    torch.save(combined_dataset, dataset_path)
-    print(f"Combined dataset saved to {dataset_path}")
-    
-    # Save stats
-    stats_path = os.path.join(dataset_dir, "stats.json")
-    with open(stats_path, 'w') as f:
-        json.dump({"class_counts": class_counts, "mismatch_stats": mismatch_stats}, f, indent=2)
-    print(f"Class counts and mismatch statistics saved to {stats_path}")
-    
-    # Save sample images and labels
-    samples_dir = os.path.join(dataset_dir, "samples")
-    os.makedirs(samples_dir, exist_ok=True)
-    num_samples = min(20, len(combined_dataset))
-    
-    for i in range(num_samples):
-        sample = random.choice(combined_dataset)
-        image = sample['image']
-        
-        # Convert tensor to PIL Image
-        image = ToPILImage()(image.squeeze())
-        
-        plt.figure(figsize=(10, 10))
-        plt.imshow(image)
-        plt.axis('off')
-        plt.title(f"Sample {i+1}")
-        
-        # Add text information
-        info_text = f"Occupation: {sample['occupation']}\n\n"
-        info_text += "\n".join([f"{attr}: {probs}" for attr, probs in sample['labels'].items()])
-        info_text += f"\n\nInserted attributes: {sample['inserted_attributes']}"
-        
-        plt.figtext(0.5, 0.02, info_text, ha="center", fontsize=10, bbox={"facecolor":"white", "alpha":0.8, "pad":5})
-        
-        plt.tight_layout()
-        plt.savefig(os.path.join(samples_dir, f"sample_{i+1}.png"), dpi=300, bbox_inches='tight')
-        plt.close()
-        
-        # Save the original image
-        image.save(os.path.join(samples_dir, f"sample_{i+1}_original.png"))
-
-    print(f"Sample visualizations saved to {samples_dir}")
-    
-    # Clean up temporary directory
-    shutil.rmtree(temp_dir)
-    print(f"Temporary directory {temp_dir} removed")
-
-def main():
-    args = create_argparser().parse_args()
-    
-    accelerator = Accelerator(mixed_precision="fp16" if args.use_fp16 else "no")
-    
-    pipe = load_diffusion_model(args)
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    
+def setup_classifiers(device: torch.device) -> Dict[str, Any]:
+    """Set up face detection and attribute classification models."""
     face_detector = get_face_detector(torch.cuda.current_device())
-    attribute_info = setup_attribute_info()
-    attribute_classifiers = {attr: get_attribute_classifier(attr, device) for attr in attribute_info.keys()}
-    occupations = load_occupations(os.path.join(script_dir, 'occupations.json'))
-    
-    start_time = time.time()
-    class_counts, mismatch_stats, temp_dir, total_processed = create_dataset(args, pipe, occupations, device, face_detector, attribute_classifiers, attribute_info)
-    end_time = time.time()
-    total_time = end_time - start_time
-    print(f"Total time taken for entire process: {total_time:.2f} seconds")
-    
-    output_dir = os.path.join(script_dir, args.output_path)
-    save_dataset(class_counts, mismatch_stats, temp_dir, total_processed, output_dir)
+    classifiers = {
+        'gender': get_attribute_classifier('gender', device),
+        'race': get_attribute_classifier('race', device),
+        'age': get_attribute_classifier('age', device)
+    }
+    return {'face_detector': face_detector, **classifiers}
 
-def create_argparser():
-    defaults = classifier_and_diffusion_defaults()
-    defaults.update(dict(
-        use_fp16=True,
-        model_path="runwayml/stable-diffusion-v1-5",
-        model_type="SD-1.5",
-        seed=53467,
-        output_path="datasets_qqff",
-        num_images=2000,
-        batch_size=32,
-    ))
+def generate_prompt(occupation: str, attributes: List[str]) -> Tuple[str, Dict[str, str]]:
+    """Generate a prompt with random attribute classes inserted."""
+    inserted_classes = {}
+    attribute_parts = []
+    for attr in attributes:
+        class_ = random.choice(ATTRIBUTE_CLASSES[attr])
+        attribute_parts.append(class_)
+        inserted_classes[attr] = class_
+    prompt = f"A photo of the face of a {' '.join(attribute_parts)} {occupation}, a person"
+    return prompt, inserted_classes
+
+def process_batch(
+    pipeline: DebiasDiffusionPipeline,
+    prompts: List[str],
+    batch_size: int,
+    seed: int,
+    use_classifiers: bool,
+    classifiers: Optional[Dict[str, Any]] = None
+) -> Tuple[torch.Tensor, List[Dict[str, Any]]]:
+    """Process a batch of prompts to generate images and collect h-space vectors."""
+    generator = torch.Generator(device=pipeline.device).manual_seed(seed)
+    outputs = pipeline(
+        prompt=prompts,
+        num_inference_steps=50,
+        guidance_scale=7.5,
+        generator=generator,
+        num_images_per_prompt=1,
+        return_dict=False
+    )
     
-    parser = argparse.ArgumentParser()
-    add_dict_to_argparser(parser, defaults)
-    return parser
+    images, h_vectors = outputs[0], outputs[1]
+    
+    batch_data = []
+    for i, (image, h_vector) in enumerate(zip(images, h_vectors)):
+        data = {'prompt': prompts[i], 'h_vector': h_vector}
+        
+        if use_classifiers:
+            face_detected, face_chip = classifiers['face_detector'].detect_and_align_face(image)
+            if face_detected:
+                for attr in ['gender', 'race', 'age']:
+                    probs = classify_attribute(face_chip, classifiers[attr], attr)
+                    data[f'{attr}_probs'] = probs
+            else:
+                data['face_detected'] = False
+        
+        batch_data.append(data)
+    
+    return h_vectors, batch_data
+
+def main(args: argparse.Namespace) -> None:
+    set_seed(args.seed)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    pipeline = setup_pipeline(args.model_id, device)
+    classifiers = setup_classifiers(device) if args.use_classifiers else None
+
+    occupations = load_occupations(args.occupations_file)
+    
+    all_h_vectors = []
+    all_labels = []
+    metadata = []
+
+    for occupation in tqdm(occupations, desc="Processing occupations"):
+        for _ in range(0, args.num_images, args.batch_size):
+            batch_size = min(args.batch_size, args.num_images - len(all_h_vectors) % args.num_images)
+            
+            if args.use_classifiers:
+                prompts = [f"A photo of the face of a {occupation}, a person" for _ in range(batch_size)]
+            else:
+                prompts = [generate_prompt(occupation, args.attributes)[0] for _ in range(batch_size)]
+            
+            h_vectors, batch_data = process_batch(pipeline, prompts, batch_size, args.seed, args.use_classifiers, classifiers)
+            
+            all_h_vectors.extend([data['h_vector'] for data in batch_data])
+            
+            for data in batch_data:
+                label = {}
+                if args.use_classifiers:
+                    if 'face_detected' in data and not data['face_detected']:
+                        continue
+                    for attr in args.attributes:
+                        label[attr] = data[f'{attr}_probs']
+                else:
+                    _, inserted_classes = generate_prompt(occupation, args.attributes)
+                    
+                    for attr in args.attributes:
+                        one_hot = torch.zeros(len(ATTRIBUTE_CLASSES[attr]))
+                        index = ATTRIBUTE_CLASSES[attr].index(inserted_classes[attr])
+                        one_hot[index] = 1
+                        label[attr] = one_hot
+                all_labels.append(label)
+            
+            metadata.extend(batch_data)
+
+    # Save h-vectors and labels
+    torch.save(torch.stack(all_h_vectors), args.output_dir / "h_vectors.pt")
+    torch.save(all_labels, args.output_dir / "labels.pt")
+
+    # Save metadata
+    import pandas as pd
+    pd.DataFrame(metadata).to_csv(args.output_dir / "metadata.csv", index=False)
+
+    print(f"Dataset created and saved to {args.output_dir}")
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Create dataset for h-space classifier training")
+    parser.add_argument("--model_id", type=str, default="PalionTech/debias-diffusion-orig", help="HuggingFace model ID or path to local model")
+    parser.add_argument("--num_images", type=int, default=10, help="Number of images to generate per occupation")
+    parser.add_argument("--occupations_file", type=Path, default=BASE_DIR / "data/experiments/section_5.4.1/5.4.1_occupations_500.json", help="Path to JSON file containing occupations list")
+    parser.add_argument("--output_dir", type=Path, default=BASE_DIR / "data/experiments/section_4.3/h_space_data", help="Directory to save output files")
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch size for image generation")
+    parser.add_argument("--use_classifiers", default=False, action="store_true", help="Use face detection and attribute classifiers for labeling")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    parser.add_argument("--attributes", nargs='+', default=['gender', 'race', 'age'], help="List of attributes to consider")
+    return parser.parse_args()
 
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+    main(args)

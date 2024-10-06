@@ -1,13 +1,13 @@
 # Results Directory
 
-This directory contains the outputs and results from various experiments conducted in the DebiasDiffusion project. The results are organized by thesis sections to maintain a clear connection between the experiments and the written work.
+This directory contains the outputs and results from various experiments. The results are organized by thesis sections to maintain a clear connection between the experiments and the written work.
 
 ## Structure
 
 - `section_4.2/`: Results related to prioritizing pretext tasks in diffusion models
 - `section_5.1.3/`: Results from attribute switching experiments
 - `section_5.4/`: Comprehensive evaluation results, including fairness metrics and image quality assessments
-- `section_6.1/`: Ablation study results for Debias Diffusion
+- `section_6.1/`: Ablation studies results for Debias Diffusion and h-space classifiers
 
 ## Contents
 
@@ -39,4 +39,4 @@ Note: Some results may require significant computational resources, particularly
 - Pay special attention to the fairness metrics (e.g., Fairness Discrepancy) and image quality measures (e.g., FID scores).
 - For a comprehensive analysis of these results, refer to the corresponding sections in the thesis document.
 
-For any questions about the results or reproduction of experiments, please refer to the main project README or contact the project maintainer.
+For any questions about the results or reproduction of experiments, please refer to the main project README or contact the project maintainer at [maber133@uni-duesseldorf.de](maber133@uni-duesseldorf.de).

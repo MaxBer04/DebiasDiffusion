@@ -561,7 +561,10 @@ class DebiasDiffusionPipeline(StableDiffusionPipeline):
             image = self.numpy_to_pil(image)
 
         if not return_dict:
-            return (image, h_vects, all_probs) #, all_probs
+            if self.collect_probs:
+                return (image, h_vects, all_probs) #, all_probs
+            else:
+                return (image, h_vects, None)
 
         return StableDiffusionPipelineOutput(images=image, nsfw_content_detected=has_nsfw_concept)
     
