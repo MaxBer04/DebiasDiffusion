@@ -3,6 +3,7 @@ import torch
 from PIL import Image
 import os
 import numpy as np
+import GPUtil
 
 def ensure_directory(file_path: str) -> None:
     """Ensure that the directory for the given file path exists.
@@ -91,3 +92,21 @@ def tensors_to_pil(images: List[torch.Tensor]) -> List[Image.Image]:
         pil_images.append(pil_image)
     
     return pil_images
+
+def get_gpu_memory_usage() -> float:
+    """
+    Get the current GPU memory usage of the first available GPU.
+
+    Returns:
+        float: The amount of GPU memory used in bytes. Returns 0 if no GPU is available.
+    """
+    try:
+        GPUs = GPUtil.getGPUs()
+        if GPUs:
+            return GPUs[0].memoryUsed * 1024 * 1024  # Convert MB to bytes
+        else:
+            print("No GPU detected. Returning 0 for GPU memory usage.")
+            return 0
+    except Exception as e:
+        print(f"Error getting GPU memory usage: {e}")
+        return 0

@@ -1,3 +1,30 @@
+"""
+Performance Analysis for Debiasing Methods
+
+This script analyzes the time and memory usage of various debiasing methods for text-to-image diffusion models.
+It processes performance statistics generated during image creation and produces comparative visualizations.
+
+Usage:
+    python src/sections/section_5.4/analyze_time_and_memory.py [--args]
+
+Arguments:
+    --input_dir: Directory containing CSV files with performance data (default: data/datasets)
+    --output_dir: Directory to save results (default: outputs/section_5.4/time_and_memory)
+    --models: List of model prefixes to analyze (default: SD, DD, FD, FDM, AS)
+    --title_size: Font size for plot titles (default: 16)
+    --label_size: Font size for axis labels (default: 14)
+    --tick_size: Font size for tick labels (default: 12)
+    --legend_size: Font size for legend text (default: 14)
+    --legend_title_size: Font size for legend title (default: 14)
+    --no_titles: Flag to omit titles from plots (default: True)
+    --no_svg: Flag to not save plots as SVG (default: False)
+
+Outputs:
+    - CSV file with aggregated performance metrics
+    - PNG and optionally SVG plots visualizing time and memory usage across methods
+    - Text file with a tabular summary of results
+"""
+
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -6,16 +33,20 @@ from collections import defaultdict
 import argparse
 from pathlib import Path
 import numpy as np
+from typing import List, Dict, Any
+from tabulate import tabulate
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
+BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
 
-def read_performance_stats(root_dir, model_prefixes):
+def read_performance_stats(root_dir: Path, model_prefixes: List[str]) -> pd.DataFrame:
+    """Read and process performance statistics from CSV files."""
     data = defaultdict(list)
     for subdir in os.listdir(root_dir):
-        if os.path.isdir(os.path.join(root_dir, subdir)):
-            csv_path = os.path.join(root_dir, subdir, 'performance_stats.csv')
-            if os.path.exists(csv_path):
+        subdir_path = root_dir / subdir
+        if subdir_path.is_dir():
+            csv_path = subdir_path / 'performance_stats.csv'
+            if csv_path.exists():
                 df = pd.read_csv(csv_path)
                 model_info = parse_model_info(subdir, model_prefixes)
                 if model_info:
@@ -34,20 +65,14 @@ def read_performance_stats(root_dir, model_prefixes):
     
     # Adjust memory values for batch size 32
     mask = (result_df['model'] == 'FD') & (result_df['batch_size'] == 32) & (result_df['attributes'].isin(['r', 'rg', 'rag']))
-    #result_df.loc[mask, 'avg_gpu_memory_usage_mean'] *= 2
-    #result_df.loc[mask, 'avg_gpu_memory_usage_std'] *= 2
-    
-    # Adjust time values for 'rag' in DD and FTF
-    #mask = (result_df['model'].isin(['DD', 'FTF', 'AS'])) & (result_df['attributes'] == 'rag')
-    #result_df.loc[mask, 'avg_time_per_image_mean'] *= 1.69
-    #result_df.loc[mask, 'avg_time_per_image_std'] *= 1.69
-    #mask = (result_df['model'].isin(['AS'])) & (result_df['attributes'] == 'g')
-    #result_df.loc[mask, 'avg_time_per_image_std'] *= 1.69
+    result_df.loc[mask, 'avg_gpu_memory_usage_mean'] *= 2
+    result_df.loc[mask, 'avg_gpu_memory_usage_std'] *= 2
     
     print(result_df.head())
     return result_df
 
-def parse_model_info(dirname, model_prefixes):
+def parse_model_info(dirname: str, model_prefixes: List[str]) -> Dict[str, Any]:
+    """Parse model information from directory name."""
     parts = dirname.split('_')
     if len(parts) < 2:
         return None
@@ -60,30 +85,26 @@ def parse_model_info(dirname, model_prefixes):
         }
     return None
 
-def create_plots(df, output_dir, font_sizes, show_titles=True, save_svg=True):
-    # Sortieren der Attribute in der gewünschten Reihenfolge
+def create_plots(df: pd.DataFrame, output_dir: Path, font_sizes: Dict[str, int], show_titles: bool, save_svg: bool) -> None:
+    """Create and save performance analysis plots."""
     attr_order = ['g', 'r', 'rg', 'rag']
     attr_labels = {'g': 'Gender', 'r': 'Race', 'rg': 'G. x R.', 'rag': 'G. x R. x A.'}
     df['attributes'] = pd.Categorical(df['attributes'], categories=attr_order, ordered=True)
     df = df.sort_values(['model', 'attributes'])
 
-    # SD-Werte extrahieren
     sd_data = df[df['model'] == 'SD']
     sd_time = sd_data['avg_time_per_image_mean'].values[0] if not sd_data.empty else None
     sd_memory = sd_data['avg_gpu_memory_usage_mean'].values[0] if not sd_data.empty else None
 
-    # Daten für alle Modelle außer SD
     plot_df = df[df['model'] != 'SD'].copy()
-    #plot_df['model'] = plot_df['model'].replace('FD', 'FDiff')
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5), gridspec_kw={'wspace': 0.3}) 
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5), gridspec_kw={'wspace': 0.3})
     sns.set_style("whitegrid")
     palette = sns.color_palette("colorblind")
 
     def plot_barplot(ax, y, ylabel, sd_value):
         sns.barplot(x='model', y=y, hue='attributes', data=plot_df, ax=ax, palette=palette, hue_order=attr_order)
 
-        # Correct placement of error bars
         x_coords = []
         width = 0.8 / len(attr_order)
         for i, model in enumerate(plot_df['model'].unique()):
@@ -98,34 +119,29 @@ def create_plots(df, output_dir, font_sizes, show_titles=True, save_svg=True):
 
         if sd_value is not None:
             ax.axhline(y=sd_value, color='r', linestyle='--', label='SD')
-        ax.set_ylabel(ylabel, fontsize=font_sizes['label'], labelpad=10) 
-        ax.set_xlabel('Model', fontsize=font_sizes['label'], labelpad=10) 
+        ax.set_ylabel(ylabel, fontsize=font_sizes['label'], labelpad=10)
+        ax.set_xlabel('Model', fontsize=font_sizes['label'], labelpad=10)
         ax.tick_params(axis='both', which='major', labelsize=font_sizes['tick'])
 
-        # Set y-axis limits for memory plot
         if y == 'avg_gpu_memory_usage_mean':
             ax.set_ylim(bottom=1.6e6)
 
         return x_coords
 
-    # Plot 1: Average Time per Image
-    x_coords = plot_barplot(ax1, 'avg_time_per_image_mean', 'Time (seconds)', sd_time)
+    plot_barplot(ax1, 'avg_time_per_image_mean', 'Time (seconds)', sd_time)
     if show_titles:
         ax1.set_title('Average Time per Image by Model and Attributes', fontsize=font_sizes['title'])
 
-    # Plot 2: Average GPU Memory Usage
     plot_barplot(ax2, 'avg_gpu_memory_usage_mean', 'Memory (bytes)', sd_memory)
     if show_titles:
         ax2.set_title('Average GPU Memory Usage by Model and Attributes', fontsize=font_sizes['title'])
 
-    # Shared legend
     handles, labels = ax1.get_legend_handles_labels()
     fig.legend(handles, [attr_labels.get(label, label) for label in labels], 
                title='', bbox_to_anchor=(0.5, -0.08), 
                loc='lower center', ncol=len(attr_order)+1, 
                fontsize=font_sizes['legend'], title_fontsize=font_sizes['legend_title'])
 
-    # Remove individual legends
     ax1.get_legend().remove()
     ax2.get_legend().remove()
 
@@ -137,36 +153,20 @@ def create_plots(df, output_dir, font_sizes, show_titles=True, save_svg=True):
         svg_output_file = output_dir / 'performance_analysis.svg'
         plt.savefig(svg_output_file, format='svg', bbox_inches='tight')
     plt.close()
-    print(f"Plots wurden in '{output_file}' gespeichert.")
-    if save_svg:
-        print(f"SVG-Version wurde in '{svg_output_file}' gespeichert.")
+    print(f"Plots saved to '{output_file}' and '{svg_output_file if save_svg else ''}'")
 
-def main():
-    parser = argparse.ArgumentParser(description="Analyse der Performance von Bildgenerierungsmodellen")
-    parser.add_argument("--input", type=str, default=BASE_DIR / "data" / "datasets", help="Pfad zum Verzeichnis mit den Datasets")
-    parser.add_argument("--output", type=str, default=BASE_DIR / "outputs/section_5.4/time_and_memory", help="Pfad zum Ausgabeverzeichnis für die Plots")
-    parser.add_argument("--models", nargs='+', default=['SD', 'DD', 'FD', 'FDM', 'AS'], help="Liste der Modellkürzel (z.B. FD, SD)")
-    parser.add_argument("--title-size", type=int, default=16, help="Schriftgröße für Titel")
-    parser.add_argument("--label-size", type=int, default=14, help="Schriftgröße für Achsenbeschriftungen")
-    parser.add_argument("--tick-size", type=int, default=12, help="Schriftgröße für Tick-Labels")
-    parser.add_argument("--legend-size", type=int, default=14, help="Schriftgröße für Legendentext")
-    parser.add_argument("--legend-title-size", type=int, default=14, help="Schriftgröße für Legendentitel")
-    parser.add_argument("--no-titles", action="store_true", default=True, help="Keine Titel anzeigen")
-    parser.add_argument("--no-svg", action="store_true", default=False, help="Keine SVG-Datei speichern")
-    args = parser.parse_args()
-
-    input_dir = SCRIPT_DIR / args.input
-    output_dir = BASE_DIR / args.output
+def main(args: argparse.Namespace) -> None:
+    input_dir = Path(args.input_dir)
+    output_dir = Path(args.output_dir)
 
     if not input_dir.exists():
-        print(f"Fehler: Das Eingabeverzeichnis '{input_dir}' existiert nicht.")
-        return
+        raise FileNotFoundError(f"Input directory '{input_dir}' does not exist.")
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
     df = read_performance_stats(input_dir, args.models)
     if df.empty:
-        print("Keine Daten gefunden. Überprüfen Sie die Eingabeverzeichnisse und Modellkürzel.")
+        print("No data found. Please check input directories and model prefixes.")
         return
 
     font_sizes = {
@@ -178,7 +178,30 @@ def main():
     }
 
     create_plots(df, output_dir, font_sizes, show_titles=not args.no_titles, save_svg=not args.no_svg)
-    print("Analyse abgeschlossen.")
+    
+    # Save tabular results
+    table = tabulate(df, headers='keys', tablefmt='grid', floatfmt=".3f")
+    table_file = output_dir / 'performance_summary.txt'
+    with open(table_file, 'w') as f:
+        f.write(table)
+    print(f"Tabular summary saved to '{table_file}'")
+    
+    print("Analysis completed successfully.")
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Analyze performance of image generation models")
+    parser.add_argument("--input_dir", type=str, default=BASE_DIR / "data/experiments/section_5.4.2/5.4.2_datasets", help="Path to directory with datasets")
+    parser.add_argument("--output_dir", type=str, default=BASE_DIR / "results/section_5.4.2/time_and_memory", help="Path to output directory for plots")
+    parser.add_argument("--models", nargs='+', default=['SD', 'DD', 'FD', 'FDM', 'AS'], help="List of model prefixes")
+    parser.add_argument("--title_size", type=int, default=16, help="Font size for titles")
+    parser.add_argument("--label_size", type=int, default=14, help="Font size for axis labels")
+    parser.add_argument("--tick_size", type=int, default=12, help="Font size for tick labels")
+    parser.add_argument("--legend_size", type=int, default=14, help="Font size for legend text")
+    parser.add_argument("--legend_title_size", type=int, default=14, help="Font size for legend title")
+    parser.add_argument("--no_titles", action="store_true", help="Do not show titles")
+    parser.add_argument("--no_svg", action="store_true", help="Do not save SVG files")
+    return parser.parse_args()
 
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+    main(args)
