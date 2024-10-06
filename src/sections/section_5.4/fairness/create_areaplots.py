@@ -39,7 +39,7 @@ import numpy as np
 from tqdm import tqdm
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
+BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent
 
 MODEL_PREFIXES = ['SD', 'FDM', 'FD', 'AS', 'DD']
 ATTRIBUTE_LABELS = {
@@ -132,7 +132,7 @@ def create_area_plots(data: Dict[str, Dict[str, Dict[str, List[float]]]], output
                     ax.set_xlabel('Occupations' if dataset_type == 'occupation' else 'Groups', fontsize=fontsize_label, labelpad=14)
 
         for i, model in enumerate(MODEL_PREFIXES):
-            y_pos = [5, 3.48, 2.6, 1.75, 0.84][i]
+            y_pos = [4.35, 3.48, 2.6, 1.75, 0.84][i]
             fig.text(0.036, y_pos / len(MODEL_PREFIXES), MODEL_NAMES[model],
                     va='center', ha='left', rotation='vertical', fontsize=fontsize_title,
                     transform=fig.transFigure)
@@ -224,7 +224,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate comparison area plots for debiasing models")
     parser.add_argument("--debias_group", type=str, choices=['r', 'g', 'rg', 'rag'], default="rg",
                         help="Debiasing group to analyze (r: race, g: gender, rg: race and gender, rag: race, age, and gender)")
-    parser.add_argument("--data_dir", type=str, default="/root/DebiasDiffusion/data/section_5.4.1/5.4.1_attribute_classification_results", help="Directory containing CSV files")
+    parser.add_argument("--data_dir", type=str, default=BASE_DIR / "data/experiments/section_5.4.1/5.4.1_attribute_classification_results", help="Directory containing CSV files")
     parser.add_argument("--num_groups", type=int, default=-1, help="Number of random groups to analyze. Use -1 for all groups.")
     parser.add_argument("--output_dir", type=str, default=BASE_DIR / "results/section_5.4.1/group_level_areaplots", help="Directory to save output plots")
     parser.add_argument("--save_svg", action="store_true", default=True, help="Save plots as SVG in addition to PNG")
