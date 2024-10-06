@@ -14,7 +14,7 @@ from accelerate.utils import set_seed
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.append(str(SCRIPT_DIR.parent.parent / 'custom'))
 
-from clip_utils import CLIPEncoder
+from utils.clip_utils import CLIPEncoder
 
 class ImageTextDataset(Dataset):
     def __init__(self, metadata, dataset_path, original_metadata, original_dataset_path, dataset_type, is_original=False):
