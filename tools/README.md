@@ -14,6 +14,11 @@ Usage:
   python public_data_downloader.py <package> --output_dir <dir>
   ```
 
+Example to download all files:
+```
+python public_data_downloader.py all --ouput_dir data
+```
+
 
 Packages:
 - `all`: Download all data (model weights and all experiment datasets)
