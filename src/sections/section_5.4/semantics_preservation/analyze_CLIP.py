@@ -1,3 +1,25 @@
+"""
+CLIP Analysis for Semantic Preservation in DebiasDiffusion
+
+This script analyzes the semantic preservation of generated images using CLIP embeddings.
+It compares generated images to their original prompts and to the original model's outputs.
+
+Usage:
+    python src/sections/section_5.4/semantics_preservation/analyze_CLIP.py [--args]
+
+Arguments:
+    --datasets_dir: Directory containing all datasets (default: BASE_DIR / "data/experiments/section_5.4.2/5.4.2_datasets")
+    --original_dataset: Name of the original dataset (default: "SD")
+    --output_dir: Directory to save results (default: BASE_DIR / "results/section_5.4.2/CLIP_results")
+    --batch_size: Batch size for CLIP processing (default: 1024)
+    --dataset_type: Type of dataset: 'occupation' or 'laion' (default: 'laion')
+
+Outputs:
+    - CSV files with CLIP scores for each dataset
+    - Overall results CSV file
+    - Console output with analysis summary
+"""
+
 import os
 import sys
 import pandas as pd
@@ -6,15 +28,17 @@ from pathlib import Path
 import argparse
 from tqdm import tqdm
 import torch
+from typing import Any, Callable, Dict, List, Optional, Union, Tuple
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 from accelerate import Accelerator
 from accelerate.utils import set_seed
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-sys.path.append(str(SCRIPT_DIR.parent.parent / 'custom'))
+BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent
+sys.path.append(str(BASE_DIR))
 
-from utils.clip_utils import CLIPEncoder
+from src.utils.clip_utils import CLIPEncoder
 
 class ImageTextDataset(Dataset):
     def __init__(self, metadata, dataset_path, original_metadata, original_dataset_path, dataset_type, is_original=False):
@@ -71,14 +95,14 @@ def custom_collate(batch):
     image_paths, prompts, original_image_paths, groups, seeds = zip(*batch)
     return list(image_paths), list(prompts), list(original_image_paths), list(groups), list(seeds)
 
-def load_metadata(dataset_path, dataset_type):
-    metadata_path = Path(dataset_path) / 'metadata.csv'
+def load_metadata(dataset_path: Path, dataset_type: str) -> pd.DataFrame:
+    metadata_path = dataset_path / 'metadata.csv'
     if dataset_type == 'occupation':
         return pd.read_csv(metadata_path, header=0, names=['occupation', 'seed', 'prompt'])
     else:  # LAION dataset
         return pd.read_csv(metadata_path, header=0, names=['seed', 'prompt'])
 
-def process_batch(encoder, image_paths, prompts, original_image_paths=None):
+def process_batch(encoder: CLIPEncoder, image_paths: List[str], prompts: List[str], original_image_paths: List[str] = None) -> Tuple[torch.Tensor, torch.Tensor]:
     images = [Image.open(path).convert("RGB") for path in image_paths]
     prompt_similarities = encoder(images, prompts)
     
@@ -90,7 +114,7 @@ def process_batch(encoder, image_paths, prompts, original_image_paths=None):
     
     return prompt_similarities, image_similarities
 
-def run_analysis(args):
+def run_analysis(args: argparse.Namespace) -> None:
     accelerator = Accelerator()
     set_seed(42)
 
@@ -197,20 +221,22 @@ def run_analysis(args):
         accelerator.print("\n--- Overall Results ---")
         accelerator.print(overall_df.to_string(index=False))
 
-def save_results(results, output_path):
+def save_results(results: pd.DataFrame, output_path: Path) -> None:
     results.to_csv(output_path, index=False)
     print(f"Results saved to {output_path}")
 
-def main(args):
+def main(args: argparse.Namespace) -> None:
     run_analysis(args)
 
-if __name__ == "__main__":
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Analyze datasets using CLIP with Accelerate for multi-GPU support")
-    parser.add_argument("--datasets_dir", type=str, default=SCRIPT_DIR / "datasets_cleared", help="Directory containing all datasets")
+    parser.add_argument("--datasets_dir", type=str, default=BASE_DIR / "data/experiments/section_5.4.2/5.4.2_datasets", help="Directory containing all datasets")
     parser.add_argument("--original_dataset", type=str, default="SD", help="Name of the original dataset")
-    parser.add_argument("--output_dir", type=str, default=SCRIPT_DIR / "results_cleared", help="Directory to save results")
+    parser.add_argument("--output_dir", type=str, default=BASE_DIR / "results/section_5.4.2/CLIP_results", help="Directory to save results")
     parser.add_argument("--batch_size", type=int, default=1024, help="Batch size for CLIP processing")
     parser.add_argument("--dataset_type", type=str, choices=['occupation', 'laion'], default='laion', help="Type of dataset: occupation (templated) or laion (non-templated)")
-    args = parser.parse_args()
+    return parser.parse_args()
 
+if __name__ == "__main__":
+    args = parse_args()
     main(args)

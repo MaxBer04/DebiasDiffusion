@@ -1,3 +1,25 @@
+"""
+Custom Dataset Sampling for DebiasDiffusion Quality Evaluation
+
+This script prepares datasets created for evaluations to be compared in a suitable manner
+for computing quality metrics (FD_infinity and KD). It reorganizes images based on attribute
+classifications with optional face detection.
+
+Usage:
+    python src/sections/section_5.4/quality/sample_custom_dataset.py [--args]
+
+Arguments:
+    --input_dir: Input directory containing multiple dataset directories (default: BASE_DIR / "data/experiments/section_5.4.1/5.4.1_datasets")
+    --output_dir: Output directory for reorganized datasets (default: BASE_DIR / "data/experiments/section_5.4.1/reorganized_datasets")
+    --use_group_folders: Organize images into group-specific folders (default: False)
+    --use_face_detection: Use face detection to filter images (default: True)
+    --gpu_id: GPU ID for face detection (default: 0)
+    --dataset_type: Type of dataset: 'occupation' or 'laion' (default: 'laion')
+
+Outputs:
+    - Reorganized dataset folders with filtered and categorized images
+"""
+
 import os
 import argparse
 import pandas as pd
@@ -9,7 +31,7 @@ from torchvision.transforms import ToTensor
 from PIL import Image
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'custom')))
+BASE_DIR = SCRIPT_DIR.parent.parent.parent.parent.parent
 
 # Import face detection
 from face_detection import get_face_detector
@@ -128,12 +150,12 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Reorganize images based on attribute classifications with optional face detection for multiple datasets")
-    parser.add_argument("--input_dir", type=str, default=SCRIPT_DIR / "datasets", help="Input directory containing multiple dataset directories")
-    parser.add_argument("--output_dir", type=str, default=SCRIPT_DIR / "reorganized_datasets", help="Output directory for reorganized datasets")
+    parser.add_argument("--input_dir", type=str, default=BASE_DIR / "data/experiments/section_5.4.1/5.4.1_datasets", help="Input directory containing multiple dataset directories")
+    parser.add_argument("--output_dir", type=str, default=BASE_DIR / "data/experiments/section_5.4.1/reorganized_datasets", help="Output directory for reorganized datasets")
     parser.add_argument("--use_group_folders", action="store_true", help="Organize images into group-specific folders")
     parser.add_argument("--use_face_detection", action="store_true", default=True, help="Use face detection to filter images")
     parser.add_argument("--gpu_id", type=int, default=0, help="GPU ID for face detection")
-    parser.add_argument("--dataset_type", type=str, choices=['occupation', 'laion'], default='laion', help="Type of dataset: occupation (templated) or laion (non-templated)")
+    parser.add_argument("--dataset_type", type=str, choices=['occupation', 'laion'], default='occupation', help="Type of dataset: occupation (templated) or laion (non-templated)")
     args = parser.parse_args()
 
     main(args)

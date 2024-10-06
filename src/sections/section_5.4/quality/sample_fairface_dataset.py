@@ -1,3 +1,28 @@
+"""
+FairFace Dataset Sampling for DebiasDiffusion Quality Evaluation
+
+This script samples images from the FairFace dataset based on specified attributes
+and distributions. It's used to create a balanced reference dataset for quality
+metric computations in the DebiasDiffusion project.
+
+Usage:
+    python src/sections/section_5.4/quality/sample_fairface_dataset.py [--args]
+
+Arguments:
+    --num_samples: Total number of samples to generate (default: 9023)
+    --subset: FairFace subset to use (choices: "0.25", "1.25", default: "1.25")
+    --output_dir: Output directory for sampled images (default: BASE_DIR / "data/experiments/section_5.4.1/fairface_datasets/DD_rag")
+    --use_group_folders: Save images in group-specific folders (default: False)
+    --target_dist: Path to CSV file with target distribution (default: None)
+    --gender: Include gender in sampling (default: True)
+    --race: Include race in sampling (default: True)
+    --age: Include age in sampling (default: True)
+
+Outputs:
+    - Sampled images from FairFace dataset
+    - Console output with sampling statistics
+"""
+
 import os
 import argparse
 import pandas as pd
@@ -162,11 +187,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Sample dataset from FairFace with target or balanced distribution")
     parser.add_argument("--num_samples", type=int, default=9023, help="Total number of samples to generate")
     parser.add_argument("--subset", type=str, default="1.25", choices=["0.25", "1.25"], help="FairFace subset to use")
-    parser.add_argument("--output_dir", type=str, default=SCRIPT_DIR / "datasets_sampled/AS_g", help="Output directory for sampled images")
+    parser.add_argument("--output_dir", type=str, default=BASE_DIR / "data/experiments/section_5.4.1/fairface_datasets/DD_rag", help="Output directory for sampled images")
     parser.add_argument("--use_group_folders", action="store_true", default=False, help="Save images in group-specific folders")
     parser.add_argument("--target_dist", type=str, default=None, help="Path to CSV file with target distribution")
     parser.add_argument("--gender", action="store_true", default=True, help="Include gender in sampling")
-    parser.add_argument("--race", action="store_true", default=False, help="Include race in sampling")
-    parser.add_argument("--age", action="store_true", default=False, help="Include age in sampling")
+    parser.add_argument("--race", action="store_true", default=True, help="Include race in sampling")
+    parser.add_argument("--age", action="store_true", default=True, help="Include age in sampling")
     args = parser.parse_args()
-    main(args)
+    main(args)       

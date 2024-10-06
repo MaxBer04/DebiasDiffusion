@@ -9,8 +9,8 @@ Usage:
     python src/sections/section_5.4/fairness/analyze_FD.py [--args]
 
 Arguments:
-    --input_dir: Directory containing input CSV files (default: attribute_classifications)
-    --output_file: Output file path for results (default: results_FD/results.csv)
+    --input_dir: Directory containing input CSV files (default: BASE_DIR / "data/experiments/section_5.4.12/5.4.1_attribute_classification_results")
+    --output_file: Output file path for results (default: BASE_DIR / "results/section_5.4.1/FD_values.csv")
     --attributes: Attributes to evaluate (default: gender race age)
     --target_gender: Target distribution for gender [male, female] (default: 0.5 0.5)
     --target_race: Target distribution for race [white, black, asian, indian] (default: 0.25 0.25 0.25 0.25)
@@ -130,9 +130,9 @@ def main(args: argparse.Namespace):
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Calculate Fairness Discrepancy for multiple datasets.")
-    parser.add_argument("--input_dir", type=str, default=BASE_DIR / "data/experiments/section_5.4.2/5.4.2_attribute_classification_results", 
+    parser.add_argument("--input_dir", type=str, default=BASE_DIR / "data/experiments/section_5.4.1/5.4.1_attribute_classification_results", 
                         help="Directory containing input CSV files")
-    parser.add_argument("--output_file", type=str, default=BASE_DIR / "results/section_5.4.2/FD_values.csv", 
+    parser.add_argument("--output_file", type=str, default=BASE_DIR / "results/section_5.4.1/FD_values.csv", 
                         help="Output file path for results")
     parser.add_argument("--attributes", nargs='+', default=['gender', 'race', 'age'], 
                         help="Attributes to evaluate (default: gender race age)")

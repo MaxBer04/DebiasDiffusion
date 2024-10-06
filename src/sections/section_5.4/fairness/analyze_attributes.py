@@ -8,8 +8,8 @@ Usage:
     python src/sections/section_5.4/fairness/analyze_attributes.py [--args]
 
 Arguments:
-    --dataset_dir: Directory containing the dataset to analyze (default: datasets/outputs_step25_bs32_NEW)
-    --output_dir: Directory to save the output CSV file (default: attribute_classifications)
+    --dataset_dir: Directory containing the dataset to analyze (default: BASE_DIR / "data/experiments/section_5.4.1/5.4.1_datasets/SD")
+    --output_dir: Directory to save the output CSV file (default: BASE_DIR / "results/section_5.4.1/attribute_classifications")
     --output_filename: Name of the output CSV file (default: step25_bs32.csv)
     --batch_size: Batch size for processing (default: 512)
     --use_race7: Use 7-class race classifier instead of 4-class (default: False)
@@ -164,9 +164,9 @@ def main(args: argparse.Namespace):
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Analyze attributes in a dataset of images.")
-    parser.add_argument("--dataset_dir", type=Path, default=BASE_DIR / "data/experiments/section_5.4.2/5.4.2_datasets/SD", 
+    parser.add_argument("--dataset_dir", type=Path, default=BASE_DIR / "data/experiments/section_5.4.1/5.4.1_datasets/SD", 
                         help="Directory containing the dataset")
-    parser.add_argument("--output_dir", type=Path, default=BASE_DIR / "results/section_5.4.2/attribute_classifications",
+    parser.add_argument("--output_dir", type=Path, default=BASE_DIR / "results/section_5.4.1/attribute_classifications",
                         help="Directory to save the output CSV file")
     parser.add_argument("--output_filename", type=str, default='SD.csv', 
                         help="Name of the output CSV file")

@@ -10,9 +10,9 @@ Usage:
 
 Arguments:
     --debias_group: Debiasing group to analyze (r, g, rg, rag) (default: rg)
-    --data_dir: Directory containing CSV files (default: /root/DebiasDiffusion/data/5.4.1_attribute_classification_results)
+    --data_dir: Directory containing CSV files (default: BASE_DIR / "data/experiments/section_5.4.1/5.4.1_attribute_classification_results")
     --num_groups: Number of random groups to analyze. Use -1 for all groups. (default: -1)
-    --output_dir: Directory to save output plots (default: outputs/section_5.4/areaplots)
+    --output_dir: Directory to save output plots (default: BASE_DIR / "results/section_5.4.1/group_level_areaplots")
     --save_svg: Save plots as SVG in addition to PNG (default: True)
     --seed: Random seed for reproducibility (default: 1904)
     --gender_target: Target distribution for gender [male, female] (default: 0.5 0.5)

@@ -55,3 +55,5 @@ Cloudflare R2 is an object storage service that is compatible with Amazon S3's A
 - Cost-effective storage and bandwidth for large datasets
 
 The public R2 bucket used in this project is maintained by the project author and ensures that all users have access to the necessary data for reproducing experiments and using the DebiasDiffusion models.
+
+For further assistance, please contact the author under [maber133@uni-duesseldorf.de](maber133@uni-duesseldorf.de).

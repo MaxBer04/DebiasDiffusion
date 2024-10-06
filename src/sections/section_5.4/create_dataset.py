@@ -9,14 +9,14 @@ Usage:
 
 Arguments:
     --model_id: Hugging Face model ID or path to local model (default: "PalionTech/debias-diffusion-orig")
-    --prompts_file: Path to JSON file containing prompts (default: "data/prompt_lists/5.4.1_occupations_500.json")
-    --output_dir: Output directory for generated images (default: "outputs/section_5.4/generations/rag/FDM")
+    --prompts_file: Path to JSON file containing prompts (default: BASE_DIR / "data/experiments/section_5.4.1/5.4.1_occupations_500.json")
+    --output_dir: Output directory for generated images (default: BASE_DIR / "results/section_5.4.1/generations/rag/DD")
     --num_samples: Number of samples per prompt/occupation (default: 128)
     --batch_size: Batch size for image generation (default: 64)
     --use_fp16: Use half precision floating point for models (default: True)
     --seed: Global seed for reproducibility (default: 51904)
     --rank: Dimension of the LoRA update matrices (default: 50)
-    --load_text_encoder_lora_from: Path to LoRA weights (default: "data/FDM/text_encoder_lora_EMA_rag.pth")
+    --load_text_encoder_lora_from: Path to LoRA weights (default: BASE_DIR / "data/FDM/text_encoder_lora_EMA_rag.pth")
     --model: Pipeline to use (choices: SD, FDM, FD, DD, AS, default: FDM)
     --checkpoint_interval: Interval in seconds for checkpointing (default: 300)
     --dataset_type: Type of dataset: occupation or laion (default: occupation)

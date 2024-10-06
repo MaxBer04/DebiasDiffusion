@@ -1,3 +1,25 @@
+"""
+LPIPS Analysis for Semantic Preservation in DebiasDiffusion
+
+This script analyzes the semantic preservation of generated images using LPIPS (Learned Perceptual Image Patch Similarity).
+It compares generated images to the original model's outputs to measure perceptual similarity.
+
+Usage:
+    python src/sections/section_5.4/semantics_preservation/analyze_LPIPS.py [--args]
+
+Arguments:
+    --datasets_dir: Directory containing all datasets (default: BASE_DIR / "data/experiments/section_5.4.1/5.4.1_datasets")
+    --original_dataset: Name of the original dataset (default: "outputs_original_NEW")
+    --output_dir: Directory to save results (default: BASE_DIR / "results/section_5.4.1/LPIPS_results")
+    --batch_size: Batch size for LPIPS processing (default: 256)
+    --dataset_type: Type of dataset: 'occupation' or 'laion' (default: 'occupation')
+
+Outputs:
+    - CSV files with LPIPS scores for each dataset
+    - Overall results CSV file
+    - Console output with analysis summary
+"""
+
 import os
 import sys
 import pandas as pd
@@ -12,9 +34,10 @@ from accelerate import Accelerator, DistributedDataParallelKwargs
 from accelerate.utils import set_seed
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-sys.path.append(str(SCRIPT_DIR.parent.parent / 'custom'))
+BASE_DIR = SCRIPT_DIR.parent.parent.parent.parent
+sys.path.append(str(BASE_DIR))
 
-from utilslpips_utils import LPIPSEncoder
+from src.utils.lpips_utils import LPIPSEncoder
 
 class ImagePairDataset(Dataset):
     def __init__(self, metadata, dataset_path, original_metadata, original_dataset_path, dataset_type):
@@ -208,13 +231,15 @@ def print_summary(results, metric_name):
 def main(args):
     run_analysis(args)
 
-if __name__ == "__main__":
+def parse_args():
     parser = argparse.ArgumentParser(description="Analyze datasets using LPIPS with Accelerate for multi-GPU support")
-    parser.add_argument("--datasets_dir", type=str, default=SCRIPT_DIR / "datasets-2", help="Directory containing all datasets")
-    parser.add_argument("--original_dataset", type=str, default="outputs_original_NEW", help="Name of the original dataset")
-    parser.add_argument("--output_dir", type=str, default=SCRIPT_DIR / "results_LPIPS", help="Directory to save results")
+    parser.add_argument("--datasets_dir", type=str, default=BASE_DIR / "data/experiments/section_5.4.2/5.4.2_datasets", help="Directory containing all datasets")
+    parser.add_argument("--original_dataset", type=str, default="SD", help="Name of the original dataset (only name not path)")
+    parser.add_argument("--output_dir", type=str, default=BASE_DIR / "results/section_5.4.2/LPIPS_results", help="Directory to save results")
     parser.add_argument("--batch_size", type=int, default=256, help="Batch size for LPIPS processing")
-    parser.add_argument("--dataset_type", type=str, choices=['occupation', 'laion'], default='occupation', help="Type of dataset: occupation (templated) or laion (non-templated)")
-    args = parser.parse_args()
+    parser.add_argument("--dataset_type", type=str, choices=['occupation', 'laion'], default='laion', help="Type of dataset: occupation (templated) or laion (non-templated)")
+    return parser.parse_args()
 
+if __name__ == "__main__":
+    args = parse_args()
     main(args)

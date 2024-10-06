@@ -9,7 +9,7 @@ Usage:
 
 Arguments:
     --input_dir: Directory containing CSV files with performance data (default: data/datasets)
-    --output_dir: Directory to save results (default: outputs/section_5.4/time_and_memory)
+    --output_dir: Directory to save results (default: BASE_DIR / "data/experiments/section_5.4.1/5.4.1_datasets")
     --models: List of model prefixes to analyze (default: SD, DD, FD, FDM, AS)
     --title_size: Font size for plot titles (default: 16)
     --label_size: Font size for axis labels (default: 14)
@@ -190,8 +190,8 @@ def main(args: argparse.Namespace) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Analyze performance of image generation models")
-    parser.add_argument("--input_dir", type=str, default=BASE_DIR / "data/experiments/section_5.4.2/5.4.2_datasets", help="Path to directory with datasets")
-    parser.add_argument("--output_dir", type=str, default=BASE_DIR / "results/section_5.4.2/time_and_memory", help="Path to output directory for plots")
+    parser.add_argument("--input_dir", type=str, default=BASE_DIR / "data/experiments/section_5.4.1/5.4.1_datasets", help="Path to directory with datasets")
+    parser.add_argument("--output_dir", type=str, default=BASE_DIR / "results/section_5.4.1/time_and_memory", help="Path to output directory for plots")
     parser.add_argument("--models", nargs='+', default=['SD', 'DD', 'FD', 'FDM', 'AS'], help="List of model prefixes")
     parser.add_argument("--title_size", type=int, default=16, help="Font size for titles")
     parser.add_argument("--label_size", type=int, default=14, help="Font size for axis labels")
