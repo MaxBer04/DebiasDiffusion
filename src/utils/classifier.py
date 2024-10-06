@@ -37,7 +37,7 @@ TIMESTEPS: List[int] = [
 ]
 
 class GenderClassifier(nn.Module):
-    """Linear classifier for attribute predictions (it is named gender classifier but able to classify all kinds of attributes)."""
+    """Linear classifier for gender prediction."""
 
     def __init__(self, in_channels: int, image_size: int, out_channels: int, prefix: str = None):
         """
@@ -83,7 +83,7 @@ class ResNet18GenderClassifier(nn.Module):
 
     def __init__(self, in_channels: int, image_size: int, out_channels: int, prefix: str = None):
         """
-        Initialize the ResNet18GenderClassifier. This one was tested but not used in the end.
+        Initialize the ResNet18GenderClassifier.
 
         Args:
             in_channels (int): Number of input channels.
@@ -140,4 +140,19 @@ def make_classifier_model(
     Args:
         in_channels (int): Number of input channels.
         image_size (int): Size of the input image.
-        out_channels (int): Number of output channe
+        out_channels (int): Number of output channels (classes).
+        prefix (str, optional): Prefix for the model. Defaults to "train".
+        model_type (str, optional): Type of model to create. Choices are "linear" or "resnet18". Defaults to "linear".
+
+    Returns:
+        nn.Module: The created classifier model.
+
+    Raises:
+        ValueError: If an invalid model_type is provided.
+    """
+    if model_type == "linear":
+        return GenderClassifier(in_channels, image_size, out_channels, prefix)
+    elif model_type == "resnet18":
+        return ResNet18GenderClassifier(in_channels, image_size, out_channels, prefix)
+    else:
+        raise ValueError("Invalid model_type. Choose 'linear' or 'resnet18'.")
