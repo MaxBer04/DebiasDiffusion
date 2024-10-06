@@ -93,7 +93,6 @@ def upload_file(client: boto3.client, file_path: Path, bucket: str, object_name:
 
 def download_file(client: boto3.client, bucket: str, object_name: str, file_path: Path) -> None:
     """Download a file from S3 or R2 storage."""
-    print(f"HEREEEEE: {object_name}")
     file_size = client.head_object(Bucket=bucket, Key=object_name)['ContentLength']
     with tqdm(total=file_size, unit='B', unit_scale=True, desc=f"Downloading {object_name}") as pbar:
         client.download_file(
