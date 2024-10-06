@@ -44,7 +44,8 @@ def generate_images(pipeline, prompts: List[str], args: argparse.Namespace) -> L
             image = ToTensor()(image).to(pipeline.device, dtype=pipeline.vae.dtype).unsqueeze(0)
 
             re_diffused_images = []
-            for t in tqdm(pipeline.scheduler.timesteps, desc="For all timesteps"):
+            print("Iterating over all timesteps to create re-diffused images...")
+            for t in pipeline.scheduler.timesteps:
                 t = torch.tensor([int(t)], dtype=torch.long, device=pipeline.device)
                 latents = pipeline.vae.encode(image).latent_dist.sample().detach()
                 latents = latents * pipeline.vae.config.scaling_factor
@@ -82,7 +83,7 @@ def save_images(images_list: List[List[Image.Image]], output_dir: Path, args: ar
                 for i, image in enumerate(images):
                     image.save(single_images_dir / f"{prompt_slug}_{args.seed}_{i:04d}.png")
                 
-                save_image_grid_with_borders(images.reverse(), prompt, args.seed, prompt_dir, num_cols=args.grid_cols)
+                save_image_grid_with_borders(images, prompt, args.seed, prompt_dir, num_cols=args.grid_cols)
 
 def main(args: argparse.Namespace):
     set_seed(args.seed)
