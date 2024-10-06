@@ -1,9 +1,15 @@
 import torch
 import os
+import sys
 import torchvision
 from torchvision import transforms
 from torchvision.models.mobilenetv3 import mobilenet_v3_large, MobileNet_V3_Large_Weights
 import numpy as np
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+BASE_DIR = SCRIPT_DIR.parent.parent
+sys.path.append(str(BASE_DIR))
 
 class AttributeClassifier:
     def __init__(self, attribute_type, device, use_race7=False, use_legacy_gender=False):
@@ -14,23 +20,22 @@ class AttributeClassifier:
         self.model = self.load_model()
         
     def load_model(self):
-        current_dir = os.path.dirname(os.path.abspath(__file__))
         
         if self.attribute_type == 'gender' and self.use_legacy_gender:
             model = torchvision.models.resnet34(pretrained=True)
             model.fc = torch.nn.Linear(model.fc.in_features, 18)
-            weight_path = os.path.join(current_dir, "data", "legacy-fairface", "res34_fair_align_multi_7_20190809.pt")
+            weight_path = os.path.join(BASE_DIR, "data", "model_data", "external_classifiers", "from_fairface", "res34_fair_align_multi_7_20190809.pt")
         else:
             model = mobilenet_v3_large(weights=MobileNet_V3_Large_Weights.DEFAULT)
             if self.attribute_type == 'gender':
                 model._modules['classifier'][3] = torch.nn.Linear(1280, 2, bias=True)
-                weight_path = os.path.join(current_dir, "data", "5-trained-test-classifiers", "CelebA-MobileNetLarge-Gender-09191318", "epoch=19-step=25320_MobileNetLarge.pt")
+                weight_path = os.path.join(BASE_DIR, "data", "model_data", "external_classifiers", "from_FDM", "CelebA-MobileNetLarge-Gender-09191318", "epoch=19-step=25320_MobileNetLarge.pt")
             elif self.attribute_type == 'race':
                 model._modules['classifier'][3] = torch.nn.Linear(1280, 4, bias=True)
-                weight_path = os.path.join(current_dir, "data", "5-trained-test-classifiers", "fairface-MobileNetLarge-Race4-09191318", "epoch=19-step=6760_MobileNetLarge.pt")
+                weight_path = os.path.join(BASE_DIR, "data", "model_data", "external_classifiers", "from_FDM", "fairface-MobileNetLarge-Race4-09191318", "epoch=19-step=6760_MobileNetLarge.pt")
             elif self.attribute_type == 'age':
                 model._modules['classifier'][3] = torch.nn.Linear(1280, 2, bias=True)
-                weight_path = os.path.join(current_dir, "data", "5-trained-test-classifiers", "fairface-MobileNetLarge-Age2-09191319", "epoch=19-step=6760_MobileNetLarge.pt")
+                weight_path = os.path.join(BASE_DIR, "data", "model_data", "external_classifiers", "from_FDM", "fairface-MobileNetLarge-Age2-09191319", "epoch=19-step=6760_MobileNetLarge.pt")
         
         if not os.path.exists(weight_path):
             raise FileNotFoundError(f"The weight file does not exist at: {weight_path}")
