@@ -42,6 +42,35 @@ sys.path.append(str(BASE_DIR))
 
 from utils.general import ensure_directory, normalize_img_for_imshow, is_image_file, remove_image_filename
 
+
+def save_plot(fig: plt.Figure, output_path: Path, dpi: int = 300) -> None:
+    """
+    Save the given matplotlib figure as both PNG and SVG files.
+
+    Args:
+        fig (plt.Figure): The matplotlib figure to save.
+        output_path (Path): The base path to save the files (without extension).
+        dpi (int, optional): The resolution in dots per inch. Defaults to 300.
+
+    Returns:
+        None
+    """
+    # Ensure the directory exists
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Save as PNG
+    png_path = output_path.with_suffix('.png')
+    fig.savefig(png_path, dpi=dpi, bbox_inches='tight')
+    print(f"Plot saved as PNG: {png_path}")
+
+    # Save as SVG
+    svg_path = output_path.with_suffix('.svg')
+    fig.savefig(svg_path, format='svg', bbox_inches='tight')
+    print(f"Plot saved as SVG: {svg_path}")
+
+    # Close the plot to free up memory
+    plt.close(fig)
+
 def plot_images_with_attributes(
     images: torch.Tensor,
     probs_dict: Dict[str, torch.Tensor],

@@ -15,13 +15,13 @@ Arguments:
     --use_fp16: Use half precision for evaluation (default: True)
     --attributes: List of attributes to evaluate (default: gender race age)
     --dataset_sizes: List of dataset sizes to evaluate (default: 5k)
-    --methods: List of methods to evaluate (default: qq qqff qqff_v2)
-    --fontsize_base: Base font size for plots (default: 14)
-    --fontsize_label: Font size for axis labels (default: 16)
-    --fontsize_title: Font size for plot titles (default: 16)
-    --fontsize_tick: Font size for tick labels (default: 14)
-    --fontsize_legend: Font size for legends (default: 16)
-    --fontsize_text: Font size for additional text in plots (default: 14)
+    --methods: List of methods to evaluate (default: self_labeled cls_labeled cls_labeled_oh)
+    --fontsize_base: Base font size for plots (default: 18)
+    --fontsize_label: Font size for axis labels (default: 20)
+    --fontsize_title: Font size for plot titles (default: 20)
+    --fontsize_tick: Font size for tick labels (default: 18)
+    --fontsize_legend: Font size for legends (default: 18)
+    --fontsize_text: Font size for additional text in plots (default: 18)
 
 Outputs:
     - PNG and SVG plots of classifier accuracy over timesteps
@@ -166,15 +166,7 @@ def evaluate_classifiers(classifiers: Dict[str, Tuple[torch.nn.Module, str, str]
 def plot_results(results: Dict[str, np.ndarray], 
                  output_path: Path, 
                  font_sizes: Dict[str, int]) -> None:
-    """
-    Plot the evaluation results.
-
-    Args:
-        results (Dict[str, np.ndarray]): Evaluation results for each classifier.
-        output_path (Path): Path to save the plot.
-        font_sizes (Dict[str, int]): Font sizes for different plot elements.
-    """
-    plt.figure(figsize=(12, 8))
+    fig, ax = plt.subplots(figsize=(10, 6))  # Increased height to accommodate legend
     sns.set_style("whitegrid")
 
     color_palette = plt.cm.Set2.colors + plt.cm.Set3.colors + plt.cm.tab20.colors
@@ -192,26 +184,50 @@ def plot_results(results: Dict[str, np.ndarray],
 
     grouped_results = {}
     for name, accuracies in results.items():
-        attr = name.split('_')[0]
+        attr, size, method = name.split('_', 2)
+        if method.endswith('_oh'):
+            method = method.replace('labeled_oh', 'oh')
+        else:
+            method = method.replace('labeled', '')
+        method = method.strip('_')
+        
         if attr not in grouped_results:
             grouped_results[attr] = []
-        grouped_results[attr].append((name, accuracies))
+        grouped_results[attr].append((size, method, accuracies))
 
+    lines = []
+    labels = []
     for attr, group in grouped_results.items():
         color = color_dict[attr]
-        for i, (name, accuracies) in enumerate(group):
+        for i, (size, method, accuracies) in enumerate(group):
             linestyle = linestyles[i % len(linestyles)]
-            plt.plot(range(50), accuracies * 100, label=f"{attr.capitalize()} - {name}",
-                     color=color, linestyle=linestyle)
+            line = ax.plot(range(50), accuracies * 100, label=f"{attr.capitalize()} - {method} ({size})",
+                     color=color, linestyle=linestyle)[0]
+            lines.append(line)
+            labels.append(f"{attr.capitalize()} - {method} ({size})")
 
-    plt.xlabel("Timestep", fontsize=font_sizes['label'])
-    plt.ylabel("Accuracy (%)", fontsize=font_sizes['label'])
-    plt.ylim(0, 100)
-    plt.title("Classifier Accuracy over Diffusion Timesteps", fontsize=font_sizes['title'])
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=font_sizes['legend'])
-    plt.tight_layout()
+    ax.set_xlabel("Timestep", fontsize=font_sizes['label'])
+    ax.set_ylabel("Accuracy (%)", fontsize=font_sizes['label'])
+    ax.set_ylim(0, 100)
     
-    save_plot(plt, output_path, dpi=300)
+    # Reverse only the x-axis labels
+    ax.set_xlim(0, 49)  # Keep the original x-axis limits
+    ticks = range(0, 51, 10)  # Create ticks at intervals of 10
+    ax.set_xticks(ticks)
+    ax.set_xticklabels([50 - t for t in ticks])  # Reverse only the tick labels
+    
+    # Adjust tick label font sizes
+    ax.tick_params(axis='both', which='major', labelsize=font_sizes['tick'])
+    
+    # Place legend below the plot
+    legend = ax.legend(lines, labels, loc='upper center', fontsize=font_sizes['legend']-2, 
+              bbox_to_anchor=(0.5, -0.15), ncol=3, borderaxespad=0.)
+
+    # Adjust the plot layout to make room for the legend
+    plt.tight_layout()
+    plt.subplots_adjust(bottom=0.25)  # Adjust this value to create more or less space below the plot
+
+    save_plot(fig, output_path, dpi=300)
 
 def main(args: argparse.Namespace) -> None:
     """
@@ -229,7 +245,7 @@ def main(args: argparse.Namespace) -> None:
         for size in args.dataset_sizes:
             for method in args.methods:
                 name = f"{attr}_{size}_{method}"
-                path = BASE_DIR / f"data/model_data/h_space_classifiers/{method}/{size}/{attr}_{size}_e100_bs256_lr0.0001_tv0.8/best_model.pt"
+                path = BASE_DIR / f"data/model_data/h_space_classifiers/{method}/{size}/{attr}/best_model.pt"
                 num_classes = 2 if attr in ['gender', 'age'] else 4
                 classifiers[name] = (load_classifier(str(path), device, num_classes, "linear", args.use_fp16), attr, "linear")
     
@@ -269,18 +285,18 @@ def parse_args() -> argparse.Namespace:
                         help="Directory to save results")
     parser.add_argument("--batch_size", type=int, default=256, help="Batch size for evaluation")
     parser.add_argument("--use_fp16", action="store_true", default=True, help="Use half precision for evaluation")
-    parser.add_argument("--attributes", nargs='+', default=['gender', 'race', 'age'], 
+    parser.add_argument("--attributes", nargs='+', default=['race'], #, 'gender', 'age'
                         help="List of attributes to evaluate")
-    parser.add_argument("--dataset_sizes", nargs='+', default=['5k'], 
+    parser.add_argument("--dataset_sizes", nargs='+', default=['5k', '2k', '1k'], #
                         help="List of dataset sizes to evaluate")
-    parser.add_argument("--methods", nargs='+', default=['qq', 'qqff', 'qqff_v2'], 
+    parser.add_argument("--methods", nargs='+', default=['cls_labeled' , 'cls_labeled_oh', 'self_labeled'], #, ,'self_labeled' 
                         help="List of methods to evaluate")
     parser.add_argument("--fontsize_base", type=int, default=14, help="Base font size")
     parser.add_argument("--fontsize_label", type=int, default=16, help="Font size for axis labels")
     parser.add_argument("--fontsize_title", type=int, default=16, help="Font size for plot titles")
     parser.add_argument("--fontsize_tick", type=int, default=14, help="Font size for tick labels")
     parser.add_argument("--fontsize_legend", type=int, default=16, help="Font size for legends")
-    parser.add_argument("--fontsize_text", type=int, default=14, help="Font size for additional text in plots")
+    parser.add_argument("--fontsize_text", type=int, default=16, help="Font size for additional text in plots")
     return parser.parse_args()
 
 if __name__ == "__main__":
