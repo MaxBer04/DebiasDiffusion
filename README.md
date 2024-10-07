@@ -52,6 +52,16 @@ Detailed instructions for running specific experiments can be found in the READM
 
 The `results/` directory will contain the outputs from the various scripts provided. For a detailed analysis of these results, please refer to the accompanying thesis.
 
+## Code Attribution
+
+This project builds in parts upon the foundational work of the Hugging Face diffusers library. Certain components, specifically within `src/pipelines` and `src/utils/custom_unet.py`, incorporate modified versions of code from the diffusers library. These adaptations were necessary to implement the custom pipelines and UNet architecture required for the DebiasDiffusion method.
+
+The use and modification of this code are in compliance with the Apache 2.0 license under which the Diffusers library is distributed. Full details of the modifications and their rationale are provided in the associated thesis document.
+
+For the original Diffusers library, please refer to:
+- Repository: https://github.com/huggingface/diffusers
+- License: https://github.com/huggingface/diffusers/blob/main/LICENSE
+
 ## Acknowledgements
 
 This work is based on the Stable Diffusion model by Stability AI and uses the HuggingFace Diffusers library. We acknowledge their contributions to the field of text-to-image generation.
