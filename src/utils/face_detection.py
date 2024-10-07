@@ -26,7 +26,7 @@ from insightface.app import FaceAnalysis
 from PIL import Image
 from skimage import transform
 import kornia
-from typing import Tuple, Optional, List, Union
+from typing import Tuple, Optional, List, Union, Any
 
 class FaceDetector:
     def __init__(self, gpu_id: int = 0):

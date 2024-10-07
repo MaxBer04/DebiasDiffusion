@@ -1,164 +1,206 @@
+"""
+Dataset Creation for h-Space Classifier Training
+
+This script generates a dataset for training h-space classifiers in the DebiasDiffusion project.
+It uses a list of occupations to create prompts, generates images, and collects corresponding
+h-space vectors along with attribute labels.
+
+Usage:
+    python src/sections/section_6.2/create_dataset.py [--args]
+
+Arguments:
+    --model_id: HuggingFace model ID or path to local model (default: "PalionTech/debias-diffusion-orig")
+    --num_images: Number of images to generate per occupation (default: 10)
+    --occupations_file: Path to JSON file containing occupations list (default: BASE_DIR / "data/experiments/section_6.2/6.2_occupations_500_testing.json")
+    --output_dir: Directory to save output files (default: BASE_DIR / "results/section_6.2/h_space_data")
+    --batch_size: Batch size for image generation (default: 32)
+    --use_classifiers: Use face detection and attribute classifiers for labeling (default: False)
+    --seed: Random seed for reproducibility (default: 42)
+    --attributes: List of attributes to consider (default: ['gender', 'race', 'age'])
+
+Outputs:
+    - h-space vectors and corresponding labels saved as PyTorch tensors
+    - Metadata CSV file with generation details
+"""
+
 import torch
-import argparse
 import os
-import random
 import sys
+import random
 import json
+import argparse
+from pathlib import Path
 from tqdm import tqdm
-from accelerate import Accelerator
+from typing import List, Dict, Any, Optional, Tuple
 from torchvision.transforms import ToTensor
 
+# Add project root to Python path
+SCRIPT_DIR = Path(__file__).resolve().parent
+BASE_DIR = SCRIPT_DIR.parent.parent.parent
+sys.path.append(str(BASE_DIR))
 
-script_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(os.path.abspath(os.path.join(script_dir, '..', '..', 'custom')))
-sys.path.append(os.path.abspath(os.path.join(script_dir, '..', '..', 'aux')))
+from src.pipelines.debias_diffusion_pipeline import DebiasDiffusionPipeline
+from src.utils.face_detection import get_face_detector
+from src.utils.attribute_classification import get_attribute_classifier, classify_attribute
 
-from switching_pipeline import SwitchingDiffusionPipeline
-from face_detection import get_face_detector
-from script_util import add_dict_to_argparser, classifier_and_diffusion_defaults
+ATTRIBUTE_CLASSES = {
+    'gender': ['male', 'female'],
+    'race': ['white', 'black', 'asian', 'indian'],
+    'age': ['young', 'old']
+}
 
-def load_diffusion_model(args):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    pipe = SwitchingDiffusionPipeline.from_pretrained(args.model_path, torch_dtype=torch.float16 if args.use_fp16 else torch.float32).to(device)
+def set_seed(seed: int) -> None:
+    """Set random seed for reproducibility."""
+    random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+def load_occupations(file_path: Path) -> List[str]:
+    """Load occupations from a JSON file."""
+    with open(file_path, 'r') as f:
+        data = json.load(f)
+    return data['occupations']
+
+def setup_pipeline(model_id: str, device: torch.device) -> DebiasDiffusionPipeline:
+    """Set up the DebiasDiffusion pipeline."""
+    pipe = DebiasDiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16).to(device)
+    pipe.use_debiasing = False
+    pipe.safety_checker = None
     return pipe
 
-def load_occupations(file_path):
-    with open(file_path, 'r') as f:
-        return json.load(f)['occupations']
-
-def setup_attribute_info():
-    return {
-        'gender': {'num_classes': 2, 'attributes': ["male", "female"]},
-        'race': {'num_classes': 4, 'attributes': ["white", "black", "asian", "indian"]},
-        'age': {'num_classes': 2, 'attributes': ["young", "old"]}
-    }
-
-def generate_data_batch(pipe, batch_size, seed, attribute_info, occupations, device, face_detector):
-    torch.manual_seed(seed)
-    random.seed(seed)
-    
-    prompts = []
-    labels = {attr: [] for attr in attribute_info}
-    batch_occupations = []
-    
-    for _ in range(batch_size):
-        occupation = random.choice(occupations)
-        attrs = {}
-        for attr, info in attribute_info.items():
-            attr_idx = random.randint(0, info['num_classes'] - 1)
-            attrs[attr] = info['attributes'][attr_idx]
-            labels[attr].append(attr_idx)
-        
-        prompt = f"A photo of the face of a {' '.join(attrs.values())} {occupation}, a person"
-        prompts.append(prompt)
-        batch_occupations.append(occupation)
-    
-    generator = torch.Generator(device=pipe.device).manual_seed(seed)
-    
-    with torch.no_grad():
-        res_debiased = pipe(
-            prompt=prompts,
-            negative_prompt=[", ".join([a for attr_info in attribute_info.values() for a in attr_info['attributes'] if a not in [attrs[attr] for attr in attrs]])] * batch_size,
-            debias=False,
-            generator=generator,
-            num_inference_steps=50,
-            num_images_per_prompt=1,
-            return_dict=False
-        )
-    
-    h_debiased = torch.stack(res_debiased[5][:50])  # Shape: [50, batch_size, 1280, 8, 8]
-    
-    valid_indices = []
-    for i in range(h_debiased.shape[1]):
-        face_detected, _ = face_detector.detect_face(ToTensor()(res_debiased[0][i]))
-        if face_detected:
-            valid_indices.append(i)
-    
-    h_debiased = h_debiased[:, valid_indices]
-    labels = {attr: [labels[attr][i] for i in valid_indices] for attr in labels}
-    batch_occupations = [batch_occupations[i] for i in valid_indices]
-    
-    return h_debiased, labels, batch_occupations
-
-def create_dataset(args, pipe, attribute_info, occupations, device, face_detector):
-    batch_size = args.batch_size
-    temp_dir = os.path.join(script_dir, args.output_path, "temp")
-    os.makedirs(temp_dir, exist_ok=True)
-    
-    dataset = []
-    total_samples = 0
-    seed = args.seed
-    
-    with tqdm(total=args.num_images, desc="Creating dataset") as pbar:
-        while total_samples < args.num_images:
-            h_debiased, labels, occupations = generate_data_batch(pipe, batch_size, seed, attribute_info, occupations, device, face_detector)
-            
-            for j in range(h_debiased.shape[1]):
-                if total_samples < args.num_images:
-                    dataset.append({
-                        "h_debiased": h_debiased[:, j],
-                        "labels": {attr: labels[attr][j] for attr in labels},
-                        "occupation": occupations[j]
-                    })
-                    total_samples += 1
-                    pbar.update(1)
-            
-            if len(dataset) >= args.save_interval or total_samples == args.num_images:
-                temp_path = os.path.join(temp_dir, f"dataset_{len(os.listdir(temp_dir))}.pt")
-                torch.save(dataset, temp_path)
-                dataset = []
-            
-            seed += 1
-            torch.cuda.empty_cache()
-    
-    dataset = []
-    for file_name in os.listdir(temp_dir):
-        temp_path = os.path.join(temp_dir, file_name)
-        dataset.extend(torch.load(temp_path))
-        os.remove(temp_path)
-    os.rmdir(temp_dir)
-    
-    return dataset
-
-def save_dataset(dataset, output_dir, num_images):
-    os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, f"dataset_{num_images/1000}k.pt")
-    torch.save(dataset, output_path)
-    print(f"Dataset saved to {output_path}")
-
-def main():
-    args = create_argparser().parse_args()
-    
-    accelerator = Accelerator(mixed_precision="fp16" if args.use_fp16 else "no")
-    
-    pipe = load_diffusion_model(args)
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
+def setup_classifiers(device: torch.device) -> Dict[str, Any]:
+    """Set up face detection and attribute classification models."""
     face_detector = get_face_detector(torch.cuda.current_device())
-    occupations = load_occupations(os.path.join(script_dir, 'occupations.json'))
-    
-    attribute_info = setup_attribute_info()
-    
-    dataset = create_dataset(args, pipe, attribute_info, occupations, device, face_detector)
-    
-    output_dir = os.path.join(script_dir, args.output_path)
-    save_dataset(dataset, output_dir, args.num_images)
+    classifiers = {
+        'gender': get_attribute_classifier('gender', device),
+        'race': get_attribute_classifier('race', device),
+        'age': get_attribute_classifier('age', device)
+    }
+    return {'face_detector': face_detector, **classifiers}
 
-def create_argparser():
-    defaults = classifier_and_diffusion_defaults()
-    defaults.update(dict(
-        use_fp16=True,
-        model_path="runwayml/stable-diffusion-v1-5",
-        seed=9948485,
-        output_path="datasets",
-        num_images=5000,
-        batch_size=32,
-        save_interval=200,
-    ))
+def generate_prompt(occupation: str, attributes: List[str]) -> Tuple[str, Dict[str, str]]:
+    """Generate a prompt with random attribute classes inserted."""
+    inserted_classes = {}
+    attribute_parts = []
+    for attr in attributes:
+        class_ = random.choice(ATTRIBUTE_CLASSES[attr])
+        attribute_parts.append(class_)
+        inserted_classes[attr] = class_
+    prompt = f"A photo of the face of a {' '.join(attribute_parts)} {occupation}, a person"
+    return prompt, inserted_classes
+
+def process_batch(
+    pipeline: DebiasDiffusionPipeline,
+    prompts: List[str],
+    batch_size: int,
+    seed: int,
+    use_classifiers: bool,
+    classifiers: Optional[Dict[str, Any]] = None
+) -> Tuple[torch.Tensor, List[Dict[str, Any]]]:
+    """Process a batch of prompts to generate images and collect h-space vectors."""
+    generator = torch.Generator(device=pipeline.device).manual_seed(seed)
+    outputs = pipeline(
+        prompt=prompts,
+        num_inference_steps=50,
+        guidance_scale=7.5,
+        generator=generator,
+        num_images_per_prompt=1,
+        return_dict=False
+    )
     
-    parser = argparse.ArgumentParser()
-    add_dict_to_argparser(parser, defaults)
-    return parser
+    images, h_vectors = outputs[0], outputs[1]
+    
+    batch_data = []
+    for i, (image, h_vector) in enumerate(zip(images, h_vectors)):
+        data = {'prompt': prompts[i], 'h_vector': h_vector}
+        
+        if use_classifiers:
+            face_detected, face_chip = classifiers['face_detector'].detect_and_align_face(image)
+            if face_detected:
+                for attr in ['gender', 'race', 'age']:
+                    probs = classify_attribute(face_chip, classifiers[attr], attr)
+                    data[f'{attr}_probs'] = probs
+            else:
+                data['face_detected'] = False
+        
+        batch_data.append(data)
+    
+    return h_vectors, batch_data
+
+def main(args: argparse.Namespace) -> None:
+    """
+    Main function to run the dataset creation process.
+
+    Args:
+        args (argparse.Namespace): Command-line arguments.
+    """
+    set_seed(args.seed)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    pipeline = setup_pipeline(args.model_id, device)
+    classifiers = setup_classifiers(device) if args.use_classifiers else None
+
+    occupations = load_occupations(args.occupations_file)
+    
+    all_h_vectors = []
+    all_labels = []
+    metadata = []
+
+    for occupation in tqdm(occupations, desc="Processing occupations"):
+        for _ in range(0, args.num_images, args.batch_size):
+            batch_size = min(args.batch_size, args.num_images - len(all_h_vectors) % args.num_images)
+            
+            if args.use_classifiers:
+                prompts = [f"A photo of the face of a {occupation}, a person" for _ in range(batch_size)]
+            else:
+                prompts = [generate_prompt(occupation, args.attributes)[0] for _ in range(batch_size)]
+            
+            h_vectors, batch_data = process_batch(pipeline, prompts, batch_size, args.seed, args.use_classifiers, classifiers)
+            
+            all_h_vectors.extend([data['h_vector'] for data in batch_data])
+            
+            for data in batch_data:
+                label = {}
+                if args.use_classifiers:
+                    if 'face_detected' in data and not data['face_detected']:
+                        continue
+                    for attr in args.attributes:
+                        label[attr] = data[f'{attr}_probs']
+                else:
+                    _, inserted_classes = generate_prompt(occupation, args.attributes)
+                    
+                    for attr in args.attributes:
+                        one_hot = torch.zeros(len(ATTRIBUTE_CLASSES[attr]))
+                        index = ATTRIBUTE_CLASSES[attr].index(inserted_classes[attr])
+                        one_hot[index] = 1
+                        label[attr] = one_hot
+                all_labels.append(label)
+            
+            metadata.extend(batch_data)
+
+    # Save h-vectors and labels
+    torch.save(torch.stack(all_h_vectors), args.output_dir / "h_vectors.pt")
+    torch.save(all_labels, args.output_dir / "labels.pt")
+
+    # Save metadata
+    import pandas as pd
+    pd.DataFrame(metadata).to_csv(args.output_dir / "metadata.csv", index=False)
+
+    print(f"Dataset created and saved to {args.output_dir}")
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Create dataset for h-space classifier training")
+    parser.add_argument("--model_id", type=str, default="PalionTech/debias-diffusion-orig", help="HuggingFace model ID or path to local model")
+    parser.add_argument("--num_images", type=int, default=10, help="Number of images to generate per occupation")
+    parser.add_argument("--occupations_file", type=Path, default=BASE_DIR / "data/experiments/section_6.2/6.2_occupations_500_testing.json", help="Path to JSON file containing occupations list")
+    parser.add_argument("--output_dir", type=Path, default=BASE_DIR / "results/section_6.2/h_space_data", help="Directory to save output files")
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch size for image generation")
+    parser.add_argument("--use_classifiers", default=False, action="store_true", help="Use face detection and attribute classifiers for labeling")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    parser.add_argument("--attributes", nargs='+', default=['gender', 'race', 'age'], help="List of attributes to consider")
+    return parser.parse_args()
 
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+    main(args)

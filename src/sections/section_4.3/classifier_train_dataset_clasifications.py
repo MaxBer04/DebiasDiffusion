@@ -1,317 +1,206 @@
-import torch
-import argparse
+"""
+H-Space Classifier Training for DebiasDiffusion
+
+This script trains h-space classifiers for attribute prediction in the DebiasDiffusion project.
+It supports training on self-labeled, classifier-labeled, and one-hot encoded datasets for
+gender, race, and age attributes.
+
+Usage:
+    python src/sections/section_4.3/classifier_train_dataset_classifications.py [--args]
+
+Arguments:
+    --dataset_path: Path to the dataset file (default: BASE_DIR / "data/experiments/section_4.3/h_space_data/dataset_5k.pt")
+    --output_path: Directory to save results (default: BASE_DIR / "results/section_4.3/h_space_classifiers")
+    --batch_size: Batch size for training (default: 256)
+    --use_fp16: Use half precision for training (default: True)
+    --attributes: List of attributes to train classifiers for (default: gender race age)
+    --dataset_sizes: List of dataset sizes to train on (default: 5k)
+    --methods: List of methods to train (default: self_labeled cls_labeled cls_labeled_oh)
+    --epochs: Number of training epochs (default: 100)
+    --lr: Learning rate (default: 1e-4)
+    --save_interval: Interval for saving model checkpoints (default: 3)
+    --seed: Random seed for reproducibility (default: 42)
+
+Outputs:
+    - Trained h-space classifier models saved as PyTorch files
+    - Training logs and metrics saved as CSV files
+    - Plots of training progress and evaluation results
+"""
+
 import os
 import sys
-import io
-import torch.nn.functional as F
+import torch
+import argparse
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
+from pathlib import Path
 from tqdm import tqdm
-import wandb
+from typing import Dict, List, Tuple
+from torch.utils.data import DataLoader, TensorDataset
 from sklearn.metrics import confusion_matrix, classification_report
 import seaborn as sns
-import pandas as pd
-from datetime import datetime
-from accelerate import Accelerator
-from PIL import Image
 
-script_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'custom')))
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'aux')))
+# Add project root to Python path
+SCRIPT_DIR = Path(__file__).resolve().parent
+BASE_DIR = SCRIPT_DIR.parent.parent.parent
+sys.path.append(str(BASE_DIR))
 
-from classifier import make_classifier_model
-from script_util import (
-    add_dict_to_argparser,
-    classifier_and_diffusion_defaults,
-)
-from logger import get_logger
+from src.utils.classifier import make_classifier_model
+from src.utils.logger import get_logger
+from src.utils.plotting_utils import plot_accuracy, plot_confusion_matrix, save_plot
 
-def initialize_accelerator(args):
-    accelerator = Accelerator(mixed_precision="fp16" if args.use_fp16 else "no")
-    if accelerator.is_main_process:
-        wandb.init(
-            project=args.wandb_project,
-            name=args.wandb_name,
-            config=vars(args),
-            reinit=True,
-            settings=wandb.Settings(start_method="fork")
-        )
-    return accelerator
+def set_seed(seed: int) -> None:
+    """Set random seed for reproducibility."""
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
-def setup_directories(args):
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    args.experiment_name = f"{args.attribute_type}_classifier_{timestamp}"
-    args.model_save_dir = os.path.join(script_dir, args.output_path, args.wandb_name)
-    os.makedirs(args.model_save_dir, exist_ok=True)
-    return args
-
-def setup_logger(args):
-    logger = get_logger(args.model_save_dir, args.experiment_name)
-    return logger
-
-def load_checkpoint(args):
-    if args.resume_from_checkpoint:
-        args.resume_from_checkpoint = os.path.join(script_dir, args.resume_from_checkpoint)
-    return args
-
-def setup_attribute_info(args):
-    attribute_info = {
-        'gender': {'num_classes': 2, 'attributes': ["male", "female"]},
-        'race': {'num_classes': 4, 'attributes': ["white", "black", "asian", "indian"]},
-        'age': {'num_classes': 2, 'attributes': ["young", "old"]}
+def load_dataset(dataset_path: Path) -> Dict[str, torch.Tensor]:
+    """Load the h-space dataset."""
+    data = torch.load(dataset_path)
+    return {
+        'h_vectors': torch.stack([sample['h_debiased'] for sample in data]),
+        'labels': {attr: torch.stack([sample['labels'][attr] for sample in data]) for attr in data[0]['labels']}
     }
-    return attribute_info[args.attribute_type]
 
-def initialize_classifier(args, num_classes):
-    classifier = make_classifier_model(
-        in_channels=args.in_channels,
-        image_size=args.latents_size,
-        out_channels=num_classes,
-    )
-    if args.resume_from_checkpoint:
-        state_dict = torch.load(args.resume_from_checkpoint, map_location='cpu')
-        new_state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
-        classifier.load_state_dict(new_state_dict)
-    return classifier
-
-def prepare_training_components(accelerator, classifier, lr):
-    opt = torch.optim.Adam(classifier.parameters(), lr=lr)
-    classifier, opt = accelerator.prepare(classifier, opt)
-    return classifier, opt
-
-def load_dataset(args):
-    dataset_path = os.path.join(script_dir, args.dataset_path)
-    dataset = torch.load(dataset_path)
-    return dataset
-
-def split_dataset(dataset, train_split):
-    train_size = int(train_split * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
-    return train_dataset, val_dataset
-
-def create_data_loader(dataset, batch_size):
-    data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    return data_loader
-
-def train_classifier_on_epoch(accelerator, classifier, data_loader, opt, attribute_type, use_one_hot, prefix="train"):
-    classifier.train() if prefix == "train" else classifier.eval()
+def prepare_data(data: Dict[str, torch.Tensor], attribute: str, method: str) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Prepare data for training based on the specified method."""
+    h_vectors = data['h_vectors']
+    labels = data['labels'][attribute]
     
+    if method == 'cls_labeled_oh':
+        labels = torch.argmax(labels, dim=1)
+    elif method == 'self_labeled':
+        labels = torch.argmax(labels, dim=1)
+    
+    return h_vectors, labels
+
+def train_epoch(model: torch.nn.Module, dataloader: DataLoader, optimizer: torch.optim.Optimizer, 
+                criterion: torch.nn.Module, device: torch.device) -> float:
+    """Train the model for one epoch."""
+    model.train()
     total_loss = 0
-    total_correct = 0
-    total_samples = 0
+    for h_vectors, labels in dataloader:
+        h_vectors, labels = h_vectors.to(device), labels.to(device)
+        optimizer.zero_grad()
+        outputs = model(h_vectors)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item()
+    return total_loss / len(dataloader)
+
+def evaluate(model: torch.nn.Module, dataloader: DataLoader, criterion: torch.nn.Module, 
+             device: torch.device) -> Tuple[float, float, np.ndarray, Dict[str, float]]:
+    """Evaluate the model on the given dataset."""
+    model.eval()
+    total_loss = 0
     all_preds = []
     all_labels = []
-    timestep_accs = [0] * 50
+    with torch.no_grad():
+        for h_vectors, labels in dataloader:
+            h_vectors, labels = h_vectors.to(device), labels.to(device)
+            outputs = model(h_vectors)
+            loss = criterion(outputs, labels)
+            total_loss += loss.item()
+            preds = torch.argmax(outputs, dim=1)
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
     
-    for batch in data_loader:
-        h_debiased = batch["h_debiased"].to(device=accelerator.device)  # Shape: [batch_size, 50, 1280, 8, 8]
-        labels = batch["labels"][attribute_type].to(device=accelerator.device)  # Shape: [batch_size, num_classes]
-        
-        batch_size = h_debiased.shape[0]
-        
-        if use_one_hot:
-            labels = labels.argmax(dim=-1)  # Convert to class indices
-        
-        h_debiased = h_debiased.permute(1, 0, 2, 3, 4)  # Shape: [50, batch_size, 1280, 8, 8]
-        
-        for t in range(50):  # For each timestep
-            timestep_data = h_debiased[t]  # Shape: [batch_size, 1280, 8, 8]
-            
-            with torch.set_grad_enabled(prefix == "train"):
-                logits = classifier(timestep_data, [t] * timestep_data.shape[0])
-                
-                if use_one_hot:
-                    loss = F.cross_entropy(logits, labels)
-                    predicted_attr = logits.argmax(dim=-1)
-                    correct = (predicted_attr == labels).sum().item()
-                else:
-                    loss = F.cross_entropy(logits, labels)
-                    predicted_attr = logits.argmax(dim=-1)
-                    true_labels = labels.argmax(dim=-1)
-                    correct = (predicted_attr == true_labels).sum().item()
-                
-                total_loss += loss.item()
-                total_correct += correct
-                total_samples += timestep_data.shape[0]
-                
-                if use_one_hot:
-                    all_preds.extend(predicted_attr.detach().cpu().numpy())
-                    all_labels.extend(labels.detach().cpu().numpy())
-                else:
-                    all_preds.extend(predicted_attr.detach().cpu().numpy())
-                    all_labels.extend(true_labels.detach().cpu().numpy())
-                
-                timestep_accs[t] += correct / timestep_data.shape[0]
-                
-                if prefix == "train":
-                    accelerator.backward(loss)
-                    accelerator.clip_grad_norm_(classifier.parameters(), 1.0)
-                    opt.step()
-                    opt.zero_grad()
-    
-    avg_loss = total_loss / total_samples
-    avg_acc = total_correct / total_samples
-    timestep_accs = [acc / len(data_loader) for acc in timestep_accs]
-    
+    accuracy = np.mean(np.array(all_preds) == np.array(all_labels))
     cm = confusion_matrix(all_labels, all_preds)
     cr = classification_report(all_labels, all_preds, output_dict=True)
-    
-    return avg_loss, avg_acc, cm, cr, timestep_accs
+    return total_loss / len(dataloader), accuracy, cm, cr
 
-def log_timestep_accuracy(accelerator, timestep_accs, epoch, prefix, attribute_type):
-    if accelerator.is_main_process:
-        fig, ax = plt.subplots(figsize=(10, 6))
-        ax.plot(range(1, 51), timestep_accs, marker='o')
-        ax.set_xlabel('Timestep')
-        ax.set_ylabel('Accuracy')
-        ax.set_ylim(0, 1)
-        ax.set_title(f'{prefix.capitalize()} Accuracy per Timestep - {attribute_type.capitalize()} - Epoch {epoch}')
-        ax.grid(True)
+def main(args: argparse.Namespace):
+    set_seed(args.seed)
+    device = torch.device('cuda' if torch.cuda.is_available() and not args.no_cuda else 'cpu')
+    
+    logger = get_logger(args.output_path, f"{args.attribute}_{args.method}_{args.dataset_size}")
+    
+    data = load_dataset(args.dataset_path)
+    h_vectors, labels = prepare_data(data, args.attribute, args.method)
+    
+    dataset = TensorDataset(h_vectors, labels)
+    train_size = int(0.8 * len(dataset))
+    val_size = len(dataset) - train_size
+    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+    
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size)
+    
+    num_classes = len(torch.unique(labels))
+    model = make_classifier_model(in_channels=1280, image_size=8, out_channels=num_classes)
+    model = model.to(device)
+    
+    if args.use_fp16:
+        model = model.half()
+    
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    criterion = torch.nn.CrossEntropyLoss()
+    
+    best_val_accuracy = 0
+    train_losses, val_losses, train_accuracies, val_accuracies = [], [], [], []
+    
+    for epoch in tqdm(range(args.epochs), desc="Training"):
+        train_loss = train_epoch(model, train_loader, optimizer, criterion, device)
+        val_loss, val_accuracy, val_cm, val_cr = evaluate(model, val_loader, criterion, device)
         
-        buf = io.BytesIO()
-        fig.savefig(buf, format='png')
-        buf.seek(0)
+        train_losses.append(train_loss)
+        val_losses.append(val_loss)
         
-        image = Image.open(buf)
+        _, train_accuracy, _, _ = evaluate(model, train_loader, criterion, device)
+        train_accuracies.append(train_accuracy)
+        val_accuracies.append(val_accuracy)
         
-        timestep_accuracy_plots = wandb.Image(image, caption=f"{prefix.capitalize()} Accuracy per Timestep - {attribute_type.capitalize()} - Epoch {epoch}")
-        wandb.log({f"{prefix}_timestep_accuracy_plots": timestep_accuracy_plots})
+        logger.info(f"Epoch {epoch+1}/{args.epochs} - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, "
+                    f"Train Acc: {train_accuracy:.4f}, Val Acc: {val_accuracy:.4f}")
         
-        plt.close(fig)
-        image.close()
+        if val_accuracy > best_val_accuracy:
+            best_val_accuracy = val_accuracy
+            torch.save(model.state_dict(), args.output_path / f"best_model_{args.attribute}_{args.method}_{args.dataset_size}.pt")
+        
+        if (epoch + 1) % args.save_interval == 0:
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'train_loss': train_loss,
+                'val_loss': val_loss,
+            }, args.output_path / f"checkpoint_{args.attribute}_{args.method}_{args.dataset_size}_epoch_{epoch+1}.pt")
+    
+    # Plot training progress
+    plot_accuracy({'train': train_accuracies, 'val': val_accuracies}, 
+                  args.output_path / f"accuracy_{args.attribute}_{args.method}_{args.dataset_size}.png")
+    
+    # Plot confusion matrix
+    plot_confusion_matrix(val_cm, list(range(num_classes)), 
+                          args.output_path / f"confusion_matrix_{args.attribute}_{args.method}_{args.dataset_size}.png")
+    
+    # Save classification report
+    pd.DataFrame(val_cr).transpose().to_csv(args.output_path / f"classification_report_{args.attribute}_{args.method}_{args.dataset_size}.csv")
 
-def log_training_progress(accelerator, logger, epoch, avg_train_loss, avg_train_acc, avg_val_loss, avg_val_acc):
-    logger.info(f"Epoch {epoch}: Train Loss: {avg_train_loss:.4f}, Train Acc: {avg_train_acc:.4f}, Val Loss: {avg_val_loss:.4f}, Val Acc: {avg_val_acc:.4f}")
-    
-    if accelerator.is_main_process:
-        wandb_log_dict = {
-            "train_loss": avg_train_loss,
-            "train_acc": avg_train_acc,
-            "val_loss": avg_val_loss,
-            "val_acc": avg_val_acc,
-            "epoch": epoch
-        }
-        
-        wandb.log(wandb_log_dict)
-
-def log_confusion_matrices(accelerator, train_cm, val_cm, attribute_info):
-    if accelerator.is_main_process:
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 10))
-        sns.heatmap(train_cm, annot=True, fmt='d', ax=ax1, xticklabels=attribute_info['attributes'], yticklabels=attribute_info['attributes'])
-        ax1.set_title("Train Confusion Matrix")
-        
-        sns.heatmap(val_cm, annot=True, fmt='d', ax=ax2, xticklabels=attribute_info['attributes'], yticklabels=attribute_info['attributes'])
-        ax2.set_title("Validation Confusion Matrix")
-        
-        wandb.log({"confusion_matrices": wandb.Image(fig)})
-        plt.close(fig)
-
-def log_classification_reports(accelerator, train_cr, val_cr):
-    if accelerator.is_main_process:
-        wandb.log({
-            "train_classification_report": wandb.Table(dataframe=pd.DataFrame(train_cr).transpose()),
-            "val_classification_report": wandb.Table(dataframe=pd.DataFrame(val_cr).transpose())
-        })
-
-def save_model_checkpoint(accelerator, classifier, epoch, avg_val_acc, best_acc, save_interval, model_save_dir, logger):
-    if (epoch + 1) % save_interval == 0 or avg_val_acc > best_acc:
-        unwrapped_model = accelerator.unwrap_model(classifier)
-        save_path = os.path.join(model_save_dir, f"model_epoch_{epoch}_acc_{avg_val_acc:.4f}.pt")
-        
-        if avg_val_acc >= best_acc:
-            logger.info(f"New best model checkpoint saved! Epoch {epoch}")
-            best_acc = avg_val_acc
-            best_model_path = os.path.join(model_save_dir, "best_model.pt")
-            accelerator.save(unwrapped_model.state_dict(), best_model_path)
-    
-    return best_acc
-
-def main():
-    args = create_argparser().parse_args()
-    
-    args = setup_directories(args)
-    logger = setup_logger(args)
-    args = load_checkpoint(args)
-    
-    accelerator = initialize_accelerator(args)
-    
-    logger.info(f"Attribute type: {args.attribute_type}")
-    logger.info(f"Training batch size: {args.batch_size}")
-    logger.info(f"Training epochs: {args.epochs}")
-    
-    attribute_info = setup_attribute_info(args)
-    
-    dataset = load_dataset(args)
-    train_dataset, val_dataset = split_dataset(dataset, args.train_split)
-    train_loader = create_data_loader(train_dataset, args.batch_size)
-    val_loader = create_data_loader(val_dataset, args.batch_size)
-    
-    classifier = initialize_classifier(args, attribute_info['num_classes'])
-    classifier, opt = prepare_training_components(accelerator, classifier, args.lr)
-    
-    start_epoch = 0
-    if args.resume_from_checkpoint:
-        start_epoch = int(args.resume_from_checkpoint.split("_")[-1].split(".")[0])
-    
-    best_acc = 0
-    
-    for epoch in tqdm(range(start_epoch, args.epochs), desc="Training progress"):
-        logger.info(f"Epoch {epoch}")
-        
-        avg_train_loss, avg_train_acc, train_cm, train_cr, train_timestep_accs = train_classifier_on_epoch(
-            accelerator, classifier, train_loader, opt, args.attribute_type, args.use_one_hot
-        )
-        
-        classifier.eval()
-        with torch.no_grad():
-            avg_val_loss, avg_val_acc, val_cm, val_cr, val_timestep_accs = train_classifier_on_epoch(
-                accelerator, classifier, val_loader, None, args.attribute_type, args.use_one_hot, prefix="val"
-            )
-        
-        log_training_progress(accelerator, logger, epoch, avg_train_loss, avg_train_acc, avg_val_loss, avg_val_acc)
-        log_confusion_matrices(accelerator, train_cm, val_cm, attribute_info)
-        log_classification_reports(accelerator, train_cr, val_cr)
-        log_timestep_accuracy(accelerator, train_timestep_accs, epoch, "train", args.attribute_type)
-        log_timestep_accuracy(accelerator, val_timestep_accs, epoch, "val", args.attribute_type)
-        
-        torch.cuda.empty_cache()
-        
-        accelerator.wait_for_everyone()
-        best_acc = save_model_checkpoint(accelerator, classifier, epoch, avg_val_acc, best_acc, args.save_interval, args.model_save_dir, logger)
-    
-    accelerator.wait_for_everyone()
-    if accelerator.is_main_process:
-        wandb.finish()
-
-def create_argparser():
-    defaults = classifier_and_diffusion_defaults()
-    attribute_type = "race"  # Can be "gender", "race", or "age"
-    epochs = 100
-    batch_size = 256
-    lr = 1e-4
-    tv = 0.8
-    defaults.update(dict(
-        lr=lr,
-        latents_size=8,
-        in_channels=1280,
-        use_fp16=True,
-        save_interval=3,
-        wandb_project=f"{attribute_type}_qqff",
-        wandb_name=f"{attribute_type}_5k_e{epochs}_bs{batch_size}_lr{lr}_tv{tv}_v2",
-        resume_from_checkpoint=None,
-        epochs=epochs,
-        batch_size=batch_size,
-        attribute_type=attribute_type,
-        output_path=f"classifiers_qqff/5k",
-        dataset_path=f"datasets_training_qqff(v2)/5k/dataset.pt",
-        train_split=tv,
-        use_one_hot=True,
-    ))
-    
-    parser = argparse.ArgumentParser()
-    add_dict_to_argparser(parser, defaults)
-    return parser
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Train h-space classifiers for DebiasDiffusion")
+    parser.add_argument("--dataset_path", type=Path, default=BASE_DIR / "data/experiments/section_4.3/h_space_data/dataset_5k.pt", 
+                        help="Path to the dataset file")
+    parser.add_argument("--output_path", type=Path, default=BASE_DIR / "results/section_4.3/h_space_classifiers", 
+                        help="Directory to save results")
+    parser.add_argument("--batch_size", type=int, default=256, help="Batch size for training")
+    parser.add_argument("--use_fp16", action="store_true", help="Use half precision for training")
+    parser.add_argument("--attributes", nargs='+', default=['gender', 'race', 'age'], help="List of attributes to train classifiers for")
+    parser.add_argument("--dataset_sizes", nargs='+', default=['5k'], help="List of dataset sizes to train on")
+    parser.add_argument("--methods", nargs='+', default=['self_labeled', 'cls_labeled', 'cls_labeled_oh'], 
+                        help="List of methods to train")
+    parser.add_argument("--epochs", type=int, default=100, help="Number of training epochs")
+    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--save_interval", type=int, default=3, help="Interval for saving model checkpoints")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    parser.add_argument("--no_cuda", action="store_true", help="Disable CUDA")
+    return parser.parse_args()
 
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+    main(args)
