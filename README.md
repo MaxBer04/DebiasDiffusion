@@ -1,4 +1,4 @@
-# DebiasDiffusion: Mitigating Biases in Text-to-Image Diffusion Models
+# DebiasDiffusion: Debiasing Text-to-Image Diffusion Models
 
 This repository contains the implementation and evaluation scripts for the DebiasDiffusion method, a novel approach to mitigate biases in text-to-image diffusion models. The work was conducted as part of a master's thesis project.
 
