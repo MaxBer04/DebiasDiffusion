@@ -53,12 +53,6 @@ python -m spacy download en_core_web_sm
 
 Note: 
 - If you encounter any issues with package conflicts, try installing them one by one or consult the official documentation for each package.
-- In case you run into the following error during classification of attributes, execute step 6:
-```
-Applied providers: ['CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}}
-model ignore: /root/.insightface/models/buffalo_l/genderage.onnx genderage
-<timestamp> [E:onnxruntime:Default, provider_bridge_ort.cc:1992 TryGetProviderInfo_CUDA] /onnxruntime_src/onnxruntime/core/session/provider_bridge_ort.cc:1637 onnxruntime::Provider& onnxruntime::ProviderLibrary::Get() [ONNXRuntimeError] : 1 : FAIL : Failed to load library libonnxruntime_providers_cuda.so with error: libcublasLt.so.12: cannot open shared object file: No such file or directory
-```
 
 ## Verifying the Installation
 

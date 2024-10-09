@@ -8,7 +8,7 @@ The DebiasDiffusion project uses a public Cloudflare R2 bucket to distribute dat
 
 ## Using the public_data_downloader.py Script
 
-The `public_data_downloader.py` script in the `tools/` directory is the primary method for downloading project data.
+The `public_data_downloader.py` script in the `tools/` directory is the primary method for downloading project data. Note that the full package demands roughly ~1TB of available disc space once unzipped.
 
 ### Basic Usage
 
